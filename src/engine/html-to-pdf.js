@@ -1,6 +1,53 @@
 const puppeteer = require("puppeteer");
 const fs = require("fs");
 const path = require("path");
+const { execSync } = require("child_process");
+
+/**
+ * Detect a usable Chrome / Chromium executable.
+ * Priority: 1) PUPPETEER_EXECUTABLE_PATH env  2) Puppeteer's managed browser
+ * 3) Common system paths (Render, Debian/Ubuntu, macOS, Windows).
+ */
+function detectChromePath() {
+  // 1. Explicit env override
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+    return process.env.PUPPETEER_EXECUTABLE_PATH;
+  }
+
+  // 2. Let Puppeteer find its own managed browser (works when postinstall ran)
+  try {
+    const managed = puppeteer.executablePath();
+    if (managed && fs.existsSync(managed)) return managed;
+  } catch (_) {
+    /* ignore — fall through to system paths */
+  }
+
+  // 3. Common system paths
+  const candidates = [
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/google-chrome",
+    "/usr/bin/chromium-browser",
+    "/usr/bin/chromium",
+    "/snap/bin/chromium",
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+
+  // 4. Try `which` as last resort (Linux/macOS)
+  try {
+    const found = execSync("which google-chrome-stable || which google-chrome || which chromium-browser || which chromium", { encoding: "utf8" }).trim();
+    if (found) return found;
+  } catch (_) {
+    /* not found */
+  }
+
+  // Return undefined — Puppeteer will try its default and give a clearer error
+  return undefined;
+}
 
 /**
  * HtmlToPdfConverter — High-fidelity HTML-to-PDF conversion engine.
@@ -110,7 +157,8 @@ class HtmlToPdfConverter {
     const merged = this._mergeOptions(overrides);
     let browser;
     try {
-      browser = await puppeteer.launch({
+      const execPath = detectChromePath();
+      const launchOptions = {
         headless: true,
         args: [
           "--no-sandbox",
@@ -119,7 +167,10 @@ class HtmlToPdfConverter {
           "--disable-gpu",
           "--font-render-hinting=none",     // sharper text rendering
         ],
-      });
+      };
+      if (execPath) launchOptions.executablePath = execPath;
+
+      browser = await puppeteer.launch(launchOptions);
 
       const page = await browser.newPage();
 

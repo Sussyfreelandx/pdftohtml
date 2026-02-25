@@ -868,7 +868,7 @@ Render will show you a settings form. Fill it in **exactly** like this:
 | **Region** | Pick the one closest to you (e.g. `Oregon (US West)` or `Frankfurt (EU Central)`) |
 | **Branch** | `copilot/create-pdf-generation-engine` (or `main` if you merged the PR) |
 | **Runtime** | `Node` |
-| **Build Command** | `npm install` |
+| **Build Command** | `npm install && npx puppeteer browsers install chrome` |
 | **Start Command** | `node src/start.js` |
 | **Instance Type** | `Free` |
 
@@ -884,7 +884,7 @@ Scroll down on the same settings page to the **Environment Variables** section. 
 |---|---|---|
 | `PORT` | `3000` | Tells the server which port to listen on (Render routes external traffic to this port) |
 | `NODE_ENV` | `production` | Enables production optimizations |
-| `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD` | `false` | Ensures Chromium is downloaded during the build (needed for HTML-to-PDF) |
+| `PUPPETEER_CACHE_DIR` | `/opt/render/.cache/puppeteer` | Tells Puppeteer where to find the Chrome binary it installed during the build |
 
 To add each one: click **Add Environment Variable**, type the key in the left box and the value in the right box.
 
@@ -896,9 +896,10 @@ To add each one: click **Add Environment Variable**, type the key in the left bo
    ==> Cloning from https://github.com/YOUR_USERNAME/node.js
    ==> Checking out commit abc1234
    ==> Using Node version 20.x
-   ==> Running build command: npm install
+   ==> Running build command: npm install && npx puppeteer browsers install chrome
    added 150 packages in 30s
-   ==> Downloading Chromium...
+   Downloading Chrome...
+   Chrome downloaded to /opt/render/.cache/puppeteer
    ==> Build successful 🎉
    ==> Starting service with: node src/start.js
    🚀 PDF Engine running at http://localhost:3000
@@ -953,10 +954,12 @@ Railway is another cloud platform. It doesn't have a permanent free tier but giv
 ### Troubleshooting deployment
 
 **The build fails with "Chromium download failed" or "Cannot find Chrome"**
-This means Puppeteer couldn't download or find Chromium. Try these fixes:
-1. Make sure `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD` is set to `false` (not `true`)
-2. On Render, try adding another environment variable: `PUPPETEER_EXECUTABLE_PATH` = `/usr/bin/google-chrome-stable`
-3. If still failing, go to the **Shell** tab in Render and run: `npx puppeteer browsers install chrome`
+This means Puppeteer couldn't download or find Chromium. Try these fixes in order:
+1. Go to the **Environment** tab in Render and add: `PUPPETEER_CACHE_DIR` = `/opt/render/.cache/puppeteer`
+2. Go to the **Settings** tab and change **Build Command** to: `npm install && npx puppeteer browsers install chrome`
+3. Click **Manual Deploy → Deploy latest commit** to trigger a fresh build
+4. If still failing, try also adding: `PUPPETEER_EXECUTABLE_PATH` = `/usr/bin/google-chrome-stable`
+5. As a last resort, go to the **Shell** tab in Render and run: `npx puppeteer browsers install chrome` then restart the service
 
 **The service shows "502 Bad Gateway" or "Service Unavailable"**
 This usually means the build succeeded but the server crashed on startup. Go to the **Logs** tab in Render to see the error. Common causes:

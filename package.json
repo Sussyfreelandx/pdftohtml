@@ -9,7 +9,8 @@
   "scripts": {
     "test": "jest --verbose",
     "start": "node src/start.js",
-    "cli": "node src/cli.js"
+    "cli": "node src/cli.js",
+    "postinstall": "npx puppeteer browsers install chrome || echo 'Chrome install skipped (non-critical in dev)'"
   },
   "repository": {
     "type": "git",
