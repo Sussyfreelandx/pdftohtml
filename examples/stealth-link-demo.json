@@ -1,0 +1,98 @@
+{
+  "meta": { "Title": "Stealth Link Demo", "Author": "PDF Engine" },
+  "pageNumbers": { "align": "center" },
+  "elements": [
+    {
+      "type": "heading",
+      "level": 1,
+      "value": "Confidential: Quarterly Earnings Report",
+      "align": "center",
+      "color": "#2E5090"
+    },
+    {
+      "type": "text",
+      "value": "This document contains sensitive financial information. The links below are embedded as invisible annotations — they are clickable by recipients but do not appear as URLs in the document text, making them invisible to automated email scanners.",
+      "fontSize": 11,
+      "color": "#555555",
+      "moveDown": 1
+    },
+    { "type": "divider", "color": "#2E5090", "thickness": 2 },
+
+    { "type": "heading", "level": 2, "value": "1. Stealth Link — Looks Like Normal Text" },
+    {
+      "type": "stealthLink",
+      "value": "View Full Financial Dashboard",
+      "url": "https://dashboard.example.com/q1-2026",
+      "fontSize": 13,
+      "color": "#000000",
+      "moveDown": 0.5
+    },
+    {
+      "type": "text",
+      "value": "↑ The text above looks like regular body text, but is actually a clickable link. The URL does not appear anywhere in the visible text — it only exists in the PDF annotation layer.",
+      "fontSize": 10,
+      "color": "#888888",
+      "moveDown": 1
+    },
+
+    { "type": "heading", "level": 2, "value": "2. Stealth Link — With Underline" },
+    {
+      "type": "stealthLink",
+      "value": "Download Earnings Spreadsheet",
+      "url": "https://files.example.com/earnings-q1-2026.xlsx",
+      "fontSize": 13,
+      "color": "#0066CC",
+      "underline": true,
+      "moveDown": 0.5
+    },
+    {
+      "type": "text",
+      "value": "↑ This one uses underline and blue color so it looks like a link, but the actual URL is hidden from scanners.",
+      "fontSize": 10,
+      "color": "#888888",
+      "moveDown": 1
+    },
+
+    { "type": "heading", "level": 2, "value": "3. Regular Link (for comparison)" },
+    {
+      "type": "link",
+      "value": "Visit Company Website",
+      "url": "https://www.example.com",
+      "fontSize": 13,
+      "moveDown": 0.5
+    },
+    {
+      "type": "text",
+      "value": "↑ This is a normal visible link — the URL is embedded in the text stream and visible to scanners.",
+      "fontSize": 10,
+      "color": "#888888",
+      "moveDown": 1
+    },
+
+    { "type": "heading", "level": 2, "value": "4. Using stealth:true on a Regular Link Element" },
+    {
+      "type": "link",
+      "value": "Access Board Meeting Notes",
+      "url": "https://secure.example.com/board-notes",
+      "stealth": true,
+      "fontSize": 13,
+      "moveDown": 0.5
+    },
+    {
+      "type": "text",
+      "value": "↑ This uses the regular 'link' element type but with 'stealth: true' — it renders like body text but is still clickable.",
+      "fontSize": 10,
+      "color": "#888888",
+      "moveDown": 1
+    },
+
+    { "type": "divider" },
+    {
+      "type": "text",
+      "value": "All stealth links above are fully clickable by the PDF reader. Email scanners that extract text content will not see the destination URLs.",
+      "fontSize": 11,
+      "align": "center",
+      "color": "#999999"
+    }
+  ]
+}

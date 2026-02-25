@@ -1,0 +1,29 @@
+{
+  "meta": { "Title": "Custom PDF Demo", "Author": "PDF Engine" },
+  "pageNumbers": { "align": "center" },
+  "elements": [
+    { "type": "heading", "level": 1, "value": "Hello from PDF Engine!", "align": "center", "color": "#2E5090" },
+    { "type": "text", "value": "This PDF was generated from a raw JSON spec.", "align": "center", "fontSize": 14, "moveDown": 1 },
+    { "type": "divider", "color": "#2E5090" },
+    { "type": "heading", "level": 2, "value": "Clickable Links" },
+    { "type": "link", "value": "Visit GitHub", "url": "https://github.com", "fontSize": 12 },
+    { "type": "link", "value": "Visit Google", "url": "https://google.com", "fontSize": 12 },
+    { "type": "spacer", "lines": 1 },
+    { "type": "heading", "level": 2, "value": "A Table" },
+    {
+      "type": "table",
+      "headers": ["Feature", "Status", "Link"],
+      "rows": [
+        ["Text rendering", "✅ Done", { "text": "Docs", "link": "https://pdfkit.org" }],
+        ["Tables", "✅ Done", "—"],
+        ["Links", "✅ Done", { "text": "Example", "link": "https://example.com" }],
+        ["Images", "✅ Done", "—"]
+      ]
+    },
+    { "type": "spacer", "lines": 1 },
+    { "type": "heading", "level": 2, "value": "Bullet List" },
+    { "type": "list", "items": ["First item", "Second item", "Third item with no link", { "text": "Fourth item (click me)", "link": "https://example.com" }] },
+    { "type": "spacer", "lines": 1 },
+    { "type": "text", "value": "Thank you for using PDF Engine!", "align": "center", "fontSize": 16, "color": "#0B6623", "font": "Helvetica-Bold" }
+  ]
+}

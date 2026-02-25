@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acme Corp — Q1 2026 Report</title>
+  <style>
+    /* ---- Page setup ---- */
+    @page { size: A4; margin: 40px; }
+
+    body {
+      font-family: Helvetica, Arial, sans-serif;
+      font-size: 12px;
+      line-height: 1.6;
+      color: #222222;
+      margin: 0;
+      padding: 0;
+    }
+
+    /* ---- Header ---- */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 16px;
+      border-bottom: 3px solid #2E5090;
+    }
+    .header h1 {
+      font-size: 28px;
+      color: #2E5090;
+      margin: 0;
+    }
+    .header .meta {
+      text-align: right;
+      font-size: 11px;
+      color: #666;
+    }
+
+    /* ---- Sections ---- */
+    h2 {
+      font-size: 20px;
+      color: #2E5090;
+      margin-top: 28px;
+      margin-bottom: 8px;
+      page-break-after: avoid;
+    }
+    p { margin: 0 0 10px; orphans: 2; widows: 2; }
+
+    /* ---- Table ---- */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 11px;
+    }
+    th {
+      background-color: #2E5090;
+      color: #fff;
+      padding: 8px 12px;
+      text-align: left;
+    }
+    td {
+      padding: 8px 12px;
+      border-bottom: 1px solid #ddd;
+    }
+    tr:nth-child(even) { background-color: #f5f7fa; }
+    tr { page-break-inside: avoid; }
+
+    /* ---- Button / CTA ---- */
+    .cta {
+      display: inline-block;
+      margin-top: 20px;
+      padding: 12px 28px;
+      background-color: #0B6623;
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: bold;
+      text-decoration: none;
+      border-radius: 6px;
+      page-break-inside: avoid;
+    }
+    .cta:hover { background-color: #094d1b; }
+
+    /* ---- Footer ---- */
+    .footer {
+      margin-top: 40px;
+      padding-top: 12px;
+      border-top: 1px solid #ccc;
+      font-size: 10px;
+      color: #999;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <h1>Acme Corp — Q1 2026 Report</h1>
+    <div class="meta">
+      Prepared: February 25, 2026<br>
+      Author: Research Division<br>
+      Confidential
+    </div>
+  </div>
+
+  <!-- Executive Summary -->
+  <h2>Executive Summary</h2>
+  <p>
+    Global markets showed strong recovery in Q1 2026 with technology stocks leading the rally.
+    The S&amp;P 500 gained 8.3% while emerging markets rose 6.1%. Our proprietary model indicates
+    continued upward momentum through mid-year. Revenue across all divisions exceeded projections
+    by 12%, driven primarily by the Enterprise Solutions and Cloud Infrastructure segments.
+  </p>
+
+  <!-- Key Metrics Table -->
+  <h2>Key Metrics</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Metric</th>
+        <th>Q4 2025</th>
+        <th>Q1 2026</th>
+        <th>Change</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Revenue</td><td>$48.2M</td><td>$54.0M</td><td style="color: #0B6623;">+12.0%</td></tr>
+      <tr><td>Net Income</td><td>$8.1M</td><td>$9.7M</td><td style="color: #0B6623;">+19.8%</td></tr>
+      <tr><td>Active Users</td><td>1.2M</td><td>1.45M</td><td style="color: #0B6623;">+20.8%</td></tr>
+      <tr><td>Churn Rate</td><td>3.2%</td><td>2.8%</td><td style="color: #0B6623;">-0.4pp</td></tr>
+      <tr><td>NPS Score</td><td>62</td><td>68</td><td style="color: #0B6623;">+6</td></tr>
+    </tbody>
+  </table>
+
+  <!-- Division Performance -->
+  <h2>Division Performance</h2>
+  <p>
+    <strong>Enterprise Solutions:</strong> Revenue up 15% QoQ, driven by three major contract wins
+    in the healthcare and financial services sectors. The pipeline for Q2 is the strongest in
+    company history.
+  </p>
+  <p>
+    <strong>Cloud Infrastructure:</strong> Monthly recurring revenue (MRR) crossed $5M for the
+    first time. Customer acquisition cost (CAC) decreased by 18% due to improved inbound marketing
+    performance.
+  </p>
+  <p>
+    <strong>Consumer Products:</strong> Steady growth at 6% QoQ. The mobile app redesign launched
+    in February has improved daily active users by 22%.
+  </p>
+
+  <!-- Call to Action -->
+  <h2>Next Steps</h2>
+  <p>For the full detailed report including projections and strategic recommendations:</p>
+  <a class="cta" href="https://example.com/full-report">📊 View Full Interactive Report</a>
+
+  <!-- Footer -->
+  <div class="footer">
+    © 2026 Acme Corp. All rights reserved. This document is confidential.<br>
+    <a href="mailto:reports@acmecorp.com" style="color: #666;">reports@acmecorp.com</a>
+  </div>
+
+</body>
+</html>

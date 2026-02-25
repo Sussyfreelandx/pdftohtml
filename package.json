@@ -1,0 +1,34 @@
+{
+  "name": "pdf-engine",
+  "version": "1.0.0",
+  "description": "Server-side PDF generation engine for Node.js — build any type of PDF from scratch",
+  "main": "src/index.js",
+  "bin": {
+    "pdf-engine": "src/cli.js"
+  },
+  "scripts": {
+    "test": "jest --verbose",
+    "start": "node src/start.js",
+    "cli": "node src/cli.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Gaby2026x/node.js.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Gaby2026x/node.js/issues"
+  },
+  "homepage": "https://github.com/Gaby2026x/node.js#readme",
+  "dependencies": {
+    "express": "^5.2.1",
+    "pdfkit": "^0.17.2",
+    "puppeteer": "^24.37.5"
+  },
+  "devDependencies": {
+    "jest": "^30.2.0"
+  }
+}

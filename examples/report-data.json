@@ -1,0 +1,47 @@
+{
+  "title": "Q1 2026 Business Review",
+  "subtitle": "Performance Summary & Strategic Outlook",
+  "author": "Marketing Department",
+  "date": "March 31, 2026",
+  "sections": [
+    {
+      "heading": "Executive Summary",
+      "body": "This quarter saw strong growth across all business units. Revenue exceeded targets by 12%, driven primarily by expansion into new markets and a 30% increase in enterprise contracts. Customer satisfaction scores remained above 90% for the sixth consecutive quarter.",
+      "bullets": [
+        "Total revenue: $4.2M (up 12% QoQ)",
+        "New customers: 340 (up 25% QoQ)",
+        "Customer retention rate: 94%",
+        "Net Promoter Score: 72"
+      ],
+      "links": [
+        { "text": "View full financial dashboard", "url": "https://dashboard.example.com/q1-2026" }
+      ]
+    },
+    {
+      "heading": "Product Updates",
+      "body": "The engineering team shipped 3 major releases this quarter, including the highly anticipated API v3 and the new analytics dashboard.",
+      "table": {
+        "headers": ["Release", "Date", "Impact"],
+        "rows": [
+          ["API v3", "Jan 15", "50% faster response times"],
+          ["Analytics Dashboard", "Feb 8", "Real-time reporting for all tiers"],
+          ["Mobile App 2.0", "Mar 20", "Redesigned UX, offline support"]
+        ]
+      },
+      "links": [
+        { "text": "API v3 documentation", "url": "https://docs.example.com/api/v3" },
+        { "text": "Release notes", "url": "https://example.com/releases" }
+      ]
+    },
+    {
+      "heading": "Next Quarter Goals",
+      "body": "Q2 will focus on international expansion and platform stability.",
+      "bullets": [
+        "Launch in 3 new European markets",
+        "Achieve 99.99% uptime SLA",
+        "Hire 15 additional engineers",
+        "Complete SOC 2 Type II certification"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "company": {
+    "name": "Acme Corp",
+    "address": "123 Business Ave, Suite 100, San Francisco, CA 94105",
+    "phone": "(555) 123-4567",
+    "email": "billing@acmecorp.com",
+    "website": "https://acmecorp.com"
+  },
+  "client": {
+    "name": "Jane Smith",
+    "address": "456 Client St, New York, NY 10001",
+    "email": "jane@example.com"
+  },
+  "invoiceNumber": "INV-2026-0042",
+  "date": "2026-02-25",
+  "dueDate": "2026-03-25",
+  "items": [
+    { "description": "Web Development (40 hrs)", "quantity": 40, "unitPrice": 150 },
+    { "description": "UI/UX Design (20 hrs)", "quantity": 20, "unitPrice": 120 },
+    { "description": "Server Hosting (1 month)", "quantity": 1, "unitPrice": 99.99 }
+  ],
+  "taxRate": 0.08,
+  "notes": "Payment is due within 30 days. Late payments are subject to a 1.5% monthly fee.",
+  "payment": {
+    "method": "Credit Card / PayPal",
+    "link": "https://pay.acmecorp.com/invoice/INV-2026-0042"
+  }
+}

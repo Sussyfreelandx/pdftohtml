@@ -1,0 +1,17 @@
+{
+  "sender": {
+    "name": "David Kim",
+    "address": "789 Enterprise Blvd, Suite 300, Austin, TX 78701",
+    "email": "david.kim@innovatecorp.com",
+    "phone": "(512) 555-0199"
+  },
+  "recipient": {
+    "name": "Emily Watson",
+    "address": "321 Partnership Lane, Floor 12, Chicago, IL 60601"
+  },
+  "date": "February 25, 2026",
+  "subject": "Partnership Proposal — Joint Product Development",
+  "body": "I am writing to propose a strategic partnership between Innovate Corp and Watson Enterprises for the joint development of our next-generation analytics platform.\n\nAfter reviewing your company's impressive work in data visualization, I believe a collaboration would be mutually beneficial. Our team brings deep expertise in real-time data processing, while your team excels at intuitive user interfaces.\n\nThe proposed partnership would involve shared development resources for a 12-month period, with an equal revenue split on the resulting product. We have prepared a detailed proposal document outlining the technical architecture, timeline, and financial projections.\n\nI would welcome the opportunity to discuss this in person. Please let me know if you are available for a meeting in the coming weeks.",
+  "closing": "Warm regards,",
+  "ps": "I have attached the full proposal document for your review. Feel free to reach out at any time."
+}

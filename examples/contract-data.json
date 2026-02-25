@@ -1,0 +1,43 @@
+{
+  "title": "Freelance Service Agreement",
+  "date": "2026-02-25",
+  "partyA": {
+    "name": "Sarah Chen",
+    "title": "Independent Consultant",
+    "company": "Chen Consulting LLC",
+    "email": "sarah@chenconsulting.com"
+  },
+  "partyB": {
+    "name": "Michael Torres",
+    "title": "CEO",
+    "company": "GrowthTech Inc.",
+    "email": "michael@growthtech.com"
+  },
+  "clauses": [
+    {
+      "heading": "Scope of Work",
+      "body": "Party A (Consultant) agrees to provide web development and technical consulting services to Party B (Client), including but not limited to: front-end development, back-end API design, database architecture, and deployment automation. All work will be performed remotely unless otherwise agreed."
+    },
+    {
+      "heading": "Compensation",
+      "body": "Client agrees to pay Consultant a rate of $150 per hour, invoiced bi-weekly. Payment is due within 15 business days of invoice receipt. Late payments will incur a 1.5% monthly fee."
+    },
+    {
+      "heading": "Term & Termination",
+      "body": "This agreement begins on March 1, 2026 and continues for 6 months unless terminated earlier. Either party may terminate with 14 days written notice. Upon termination, Client will pay for all work completed up to the termination date."
+    },
+    {
+      "heading": "Intellectual Property",
+      "body": "All work product created under this agreement shall be the property of the Client upon full payment. Consultant retains the right to use general skills, techniques, and knowledge gained during the engagement."
+    },
+    {
+      "heading": "Confidentiality",
+      "body": "Both parties agree to keep confidential any proprietary information shared during the engagement. This obligation survives termination of this agreement for a period of 2 years."
+    }
+  ],
+  "governingLaw": "This agreement shall be governed by and construed in accordance with the laws of the State of California, without regard to conflict of law principles.",
+  "signatures": {
+    "partyA": "https://sign.example.com/contract/2026-001/partyA",
+    "partyB": "https://sign.example.com/contract/2026-001/partyB"
+  }
+}

@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDF Engine — Generate &amp; Convert PDFs</title>
+  <style>
+    /* ---- Reset & Base ---- */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #f0f2f5;
+      color: #1a1a2e;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    /* ---- Header ---- */
+    .header {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      color: #fff;
+      padding: 32px 24px 28px;
+      text-align: center;
+    }
+    .header h1 { font-size: 28px; font-weight: 700; margin-bottom: 6px; }
+    .header p { font-size: 15px; opacity: 0.85; max-width: 600px; margin: 0 auto; }
+
+    /* ---- Tab navigation ---- */
+    .tabs {
+      display: flex;
+      justify-content: center;
+      gap: 4px;
+      background: #e2e6ea;
+      padding: 6px;
+      border-radius: 12px;
+      max-width: 780px;
+      margin: -20px auto 0;
+      position: relative;
+      z-index: 2;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 11px 12px;
+      border: none;
+      background: transparent;
+      font-size: 14px;
+      font-weight: 600;
+      color: #555;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .tab-btn:hover { background: rgba(255,255,255,0.6); }
+    .tab-btn.active { background: #fff; color: #0f3460; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+
+    /* ---- Main content ---- */
+    .container { max-width: 780px; margin: 28px auto; padding: 0 16px; }
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 28px 32px;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+      display: none;
+    }
+    .card.active { display: block; }
+    .card h2 { font-size: 20px; margin-bottom: 4px; color: #1a1a2e; }
+    .card .subtitle { font-size: 14px; color: #666; margin-bottom: 20px; }
+
+    /* ---- Form elements ---- */
+    label { display: block; font-size: 13px; font-weight: 600; color: #444; margin-bottom: 5px; margin-top: 16px; }
+    label:first-of-type { margin-top: 0; }
+    input[type="text"], input[type="url"], input[type="number"], select, textarea {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1.5px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: inherit;
+      transition: border-color 0.2s;
+      background: #fafbfc;
+    }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: #0f3460; background: #fff; }
+    textarea { resize: vertical; min-height: 120px; font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 13px; }
+
+    /* ---- Drop zone ---- */
+    .drop-zone {
+      border: 2px dashed #c5cad3;
+      border-radius: 12px;
+      padding: 40px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: #fafbfc;
+      position: relative;
+    }
+    .drop-zone:hover, .drop-zone.dragover { border-color: #0f3460; background: #f0f4ff; }
+    .drop-zone .icon { font-size: 36px; margin-bottom: 8px; }
+    .drop-zone .label { font-size: 15px; font-weight: 600; color: #333; }
+    .drop-zone .hint { font-size: 13px; color: #888; margin-top: 4px; }
+    .drop-zone input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    .file-name { margin-top: 8px; font-size: 13px; color: #0f3460; font-weight: 600; }
+
+    /* ---- Options row ---- */
+    .options-row { display: flex; gap: 16px; flex-wrap: wrap; }
+    .options-row > div { flex: 1; min-width: 140px; }
+
+    /* ---- Button ---- */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 24px;
+      padding: 12px 28px;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      width: 100%;
+    }
+    .btn-primary { background: #0f3460; color: #fff; }
+    .btn-primary:hover { background: #122d52; }
+    .btn-primary:disabled { background: #9ca3af; cursor: not-allowed; }
+
+    /* ---- Status bar ---- */
+    .status {
+      margin-top: 16px;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      display: none;
+    }
+    .status.info { display: block; background: #e8f0fe; color: #1a56db; }
+    .status.success { display: block; background: #def7ec; color: #03543f; }
+    .status.error { display: block; background: #fde8e8; color: #9b1c1c; }
+    .spinner { display: inline-block; width: 16px; height: 16px; border: 2.5px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ---- Footer ---- */
+    .footer {
+      text-align: center;
+      padding: 24px 16px 32px;
+      font-size: 13px;
+      color: #999;
+    }
+    .footer a { color: #0f3460; text-decoration: none; }
+    .footer a:hover { text-decoration: underline; }
+
+    /* ---- Responsive ---- */
+    @media (max-width: 600px) {
+      .tabs { flex-wrap: wrap; }
+      .tab-btn { font-size: 12px; padding: 9px 8px; }
+      .card { padding: 20px 18px; }
+      .options-row { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <h1>📄 PDF Engine</h1>
+    <p>Upload HTML files, paste URLs, or use templates — generate professional PDFs instantly.</p>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="upload">Upload HTML</button>
+    <button class="tab-btn" data-tab="url">URL → PDF</button>
+    <button class="tab-btn" data-tab="template">Templates</button>
+    <button class="tab-btn" data-tab="spec">Raw Spec</button>
+  </div>
+
+  <div class="container">
+
+    <!-- ============================================================ -->
+    <!-- TAB 1: Upload HTML file                                       -->
+    <!-- ============================================================ -->
+    <div class="card active" id="tab-upload">
+      <h2>Convert HTML File to PDF</h2>
+      <p class="subtitle">Upload any .html file from your computer and download a high-fidelity PDF.</p>
+
+      <div class="drop-zone" id="dropZone">
+        <input type="file" id="htmlFile" accept=".html,.htm">
+        <div class="icon">📁</div>
+        <div class="label">Drag &amp; drop your HTML file here</div>
+        <div class="hint">or click to browse — .html / .htm</div>
+      </div>
+      <div class="file-name" id="fileName"></div>
+
+      <div class="options-row" style="margin-top: 20px;">
+        <div>
+          <label for="uploadFormat">Page Format</label>
+          <select id="uploadFormat">
+            <option value="A4" selected>A4 (default)</option>
+            <option value="Letter">US Letter</option>
+            <option value="Legal">US Legal</option>
+            <option value="A3">A3</option>
+          </select>
+        </div>
+        <div>
+          <label for="uploadFilename">Output Filename</label>
+          <input type="text" id="uploadFilename" placeholder="converted.pdf">
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="btnUpload" disabled>
+        Generate PDF
+      </button>
+      <div class="status" id="statusUpload"></div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- TAB 2: URL → PDF                                              -->
+    <!-- ============================================================ -->
+    <div class="card" id="tab-url">
+      <h2>Convert URL to PDF</h2>
+      <p class="subtitle">Enter any web page URL and download it as a PDF.</p>
+
+      <label for="urlInput">Web Page URL</label>
+      <input type="url" id="urlInput" placeholder="https://example.com">
+
+      <div class="options-row" style="margin-top: 16px;">
+        <div>
+          <label for="urlFormat">Page Format</label>
+          <select id="urlFormat">
+            <option value="A4" selected>A4</option>
+            <option value="Letter">US Letter</option>
+            <option value="Legal">US Legal</option>
+            <option value="A3">A3</option>
+          </select>
+        </div>
+        <div>
+          <label for="urlFilename">Output Filename</label>
+          <input type="text" id="urlFilename" placeholder="page.pdf">
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="btnUrl">
+        Generate PDF
+      </button>
+      <div class="status" id="statusUrl"></div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- TAB 3: Templates                                              -->
+    <!-- ============================================================ -->
+    <div class="card" id="tab-template">
+      <h2>Generate from Template</h2>
+      <p class="subtitle">Select a template, paste your JSON data, and generate a PDF.</p>
+
+      <label for="templateSelect">Template</label>
+      <select id="templateSelect">
+        <option value="invoice">Invoice</option>
+        <option value="resume">Resume / CV</option>
+        <option value="report">Report</option>
+        <option value="contract">Contract</option>
+        <option value="certificate">Certificate</option>
+        <option value="letter">Letter</option>
+      </select>
+
+      <label for="templateData">JSON Data</label>
+      <textarea id="templateData" rows="12" placeholder='Paste your JSON data here...'></textarea>
+
+      <div style="margin-top: 8px;">
+        <button style="background: none; border: none; color: #0f3460; font-size: 13px; cursor: pointer; font-weight: 600; padding: 0;" id="btnLoadExample">
+          📋 Load example data for selected template
+        </button>
+      </div>
+
+      <button class="btn btn-primary" id="btnTemplate">
+        Generate PDF
+      </button>
+      <div class="status" id="statusTemplate"></div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- TAB 4: Raw Spec                                               -->
+    <!-- ============================================================ -->
+    <div class="card" id="tab-spec">
+      <h2>Build Custom PDF (Raw Spec)</h2>
+      <p class="subtitle">Write a JSON spec with elements (text, headings, tables, links, etc.) and generate any PDF you want.</p>
+
+      <label for="specData">Spec JSON</label>
+      <textarea id="specData" rows="14" placeholder='{
+  "elements": [
+    { "type": "heading", "level": 1, "value": "Hello World" },
+    { "type": "text", "value": "This is a custom PDF." },
+    { "type": "link", "value": "Click me", "url": "https://example.com" }
+  ]
+}'></textarea>
+
+      <button class="btn btn-primary" id="btnSpec">
+        Generate PDF
+      </button>
+      <div class="status" id="statusSpec"></div>
+    </div>
+
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    PDF Engine v1.0.0 — 
+    <a href="/health">Health Check</a> · 
+    <a href="/templates">Templates API</a> · 
+    <a href="https://github.com/Gaby2026x/node.js" target="_blank">GitHub</a>
+  </div>
+
+  <!-- ============================================================== -->
+  <!-- JavaScript                                                      -->
+  <!-- ============================================================== -->
+  <script>
+    // ---- Tab switching ----
+    document.querySelectorAll(".tab-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+        document.querySelectorAll(".card").forEach((c) => c.classList.remove("active"));
+        btn.classList.add("active");
+        document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+      });
+    });
+
+    // ---- Helpers ----
+    function setStatus(id, type, msg) {
+      const el = document.getElementById(id);
+      el.className = "status " + type;
+      el.innerHTML = msg;
+    }
+    function clearStatus(id) {
+      const el = document.getElementById(id);
+      el.className = "status";
+      el.innerHTML = "";
+    }
+    function downloadBlob(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+    }
+
+    // ---- File upload / drag-drop ----
+    const dropZone = document.getElementById("dropZone");
+    const fileInput = document.getElementById("htmlFile");
+    const fileNameEl = document.getElementById("fileName");
+    const btnUpload = document.getElementById("btnUpload");
+    let selectedFile = null;
+
+    dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.classList.add("dragover"); });
+    dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
+    dropZone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropZone.classList.remove("dragover");
+      if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener("change", () => {
+      if (fileInput.files.length) handleFile(fileInput.files[0]);
+    });
+
+    function handleFile(file) {
+      selectedFile = file;
+      fileNameEl.textContent = "✅ " + file.name + " (" + (file.size / 1024).toFixed(1) + " KB)";
+      btnUpload.disabled = false;
+      // Pre-fill output filename
+      const out = document.getElementById("uploadFilename");
+      if (!out.value) out.value = file.name.replace(/\.(html?|htm)$/i, "") + ".pdf";
+    }
+
+    // ---- Upload HTML → PDF ----
+    btnUpload.addEventListener("click", async () => {
+      if (!selectedFile) return;
+      btnUpload.disabled = true;
+      setStatus("statusUpload", "info", '<span class="spinner"></span> Reading file and generating PDF — this may take a moment for large files…');
+
+      try {
+        const htmlContent = await selectedFile.text();
+        const res = await fetch("/convert", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            html: htmlContent,
+            filename: document.getElementById("uploadFilename").value || "converted.pdf",
+            options: { format: document.getElementById("uploadFormat").value },
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: res.statusText }));
+          throw new Error(err.error || "Server error");
+        }
+        const blob = await res.blob();
+        const fname = document.getElementById("uploadFilename").value || "converted.pdf";
+        downloadBlob(blob, fname);
+        setStatus("statusUpload", "success", "✅ PDF generated and downloaded — <strong>" + fname + "</strong>");
+      } catch (err) {
+        setStatus("statusUpload", "error", "❌ " + err.message);
+      } finally {
+        btnUpload.disabled = false;
+      }
+    });
+
+    // ---- URL → PDF ----
+    document.getElementById("btnUrl").addEventListener("click", async () => {
+      const url = document.getElementById("urlInput").value.trim();
+      if (!url) return setStatus("statusUrl", "error", "❌ Please enter a URL.");
+      const btn = document.getElementById("btnUrl");
+      btn.disabled = true;
+      setStatus("statusUrl", "info", '<span class="spinner"></span> Navigating to URL and generating PDF…');
+
+      try {
+        const res = await fetch("/convert/url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url,
+            filename: document.getElementById("urlFilename").value || "page.pdf",
+            options: { format: document.getElementById("urlFormat").value },
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: res.statusText }));
+          throw new Error(err.error || "Server error");
+        }
+        const blob = await res.blob();
+        const fname = document.getElementById("urlFilename").value || "page.pdf";
+        downloadBlob(blob, fname);
+        setStatus("statusUrl", "success", "✅ PDF generated — <strong>" + fname + "</strong>");
+      } catch (err) {
+        setStatus("statusUrl", "error", "❌ " + err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    // ---- Template generation ----
+    const EXAMPLE_DATA = {
+      invoice: {
+        company: { name: "Acme Corp", email: "billing@acmecorp.com", website: "https://acmecorp.com" },
+        client: { name: "Jane Smith", email: "jane@example.com" },
+        invoiceNumber: "INV-2026-001",
+        date: "2026-02-25",
+        dueDate: "2026-03-25",
+        items: [
+          { description: "Web Development (40 hrs)", quantity: 40, unitPrice: 150 },
+          { description: "UI/UX Design (20 hrs)", quantity: 20, unitPrice: 120 },
+          { description: "Server Setup", quantity: 1, unitPrice: 500 }
+        ],
+        taxRate: 0.1,
+        payment: { link: "https://pay.example.com/inv-2026-001", method: "Bank Transfer" }
+      },
+      resume: {
+        name: "John Doe",
+        title: "Senior Software Engineer",
+        email: "john@example.com",
+        phone: "+1-555-0100",
+        website: "https://johndoe.dev",
+        summary: "10+ years building scalable web applications.",
+        experience: [
+          { company: "TechCo", role: "Lead Engineer", period: "2022–Present", bullets: ["Led team of 8 engineers", "Reduced deploy time by 60%"] },
+          { company: "StartupXYZ", role: "Full-Stack Developer", period: "2018–2022", bullets: ["Built core product from scratch", "Grew user base to 50K"] }
+        ],
+        education: [
+          { institution: "MIT", degree: "B.S. Computer Science", year: "2018" }
+        ],
+        skills: ["JavaScript", "TypeScript", "Node.js", "React", "PostgreSQL", "AWS"]
+      },
+      report: {
+        title: "Q1 2026 Performance Report",
+        author: "Analytics Team",
+        date: "2026-03-01",
+        sections: [
+          { heading: "Executive Summary", body: "Revenue grew 12% quarter-over-quarter, driven by enterprise sales." },
+          { heading: "Key Metrics", bullets: ["Revenue: $54M (+12%)", "Active Users: 1.45M (+20.8%)", "NPS Score: 68 (+6)"] },
+          { heading: "Outlook", body: "We expect continued growth through Q2 with the launch of the new platform." }
+        ]
+      },
+      contract: {
+        title: "Consulting Services Agreement",
+        date: "2026-02-25",
+        partyA: { name: "Acme Corp", email: "legal@acmecorp.com" },
+        partyB: { name: "Jane Smith Consulting", email: "jane@consulting.com" },
+        clauses: [
+          { heading: "Scope of Work", body: "Consultant will provide software development services for Project Alpha." },
+          { heading: "Term", body: "This agreement is effective from March 1, 2026 to August 31, 2026." },
+          { heading: "Compensation", body: "Client will pay Consultant $15,000/month, invoiced on the 1st of each month." }
+        ],
+        signatures: {
+          partyA: "https://sign.example.com/acme",
+          partyB: "https://sign.example.com/jane"
+        }
+      },
+      certificate: {
+        title: "Certificate of Excellence",
+        recipientName: "Jane Doe",
+        description: "For outstanding contributions to Project Alpha and exceptional leadership.",
+        issuer: "Acme Corp",
+        date: "2026-02-25",
+        verifyUrl: "https://verify.acmecorp.com/cert/EXC-2026-001"
+      },
+      letter: {
+        sender: { name: "John Smith", address: "123 Business Ave, Suite 100, New York, NY 10001", email: "john@acmecorp.com" },
+        recipient: { name: "Jane Doe", address: "456 Corporate Blvd, Chicago, IL 60601" },
+        date: "2026-02-25",
+        subject: "Partnership Proposal",
+        body: "Dear Jane,\n\nI am writing to propose a strategic partnership between our organizations. After reviewing your recent work in the renewable energy sector, I believe there are significant opportunities for collaboration.\n\nI would welcome the chance to discuss this further at your earliest convenience.\n\nBest regards,\nJohn Smith\nCEO, Acme Corp"
+      }
+    };
+
+    document.getElementById("btnLoadExample").addEventListener("click", () => {
+      const template = document.getElementById("templateSelect").value;
+      document.getElementById("templateData").value = JSON.stringify(EXAMPLE_DATA[template] || {}, null, 2);
+    });
+
+    document.getElementById("btnTemplate").addEventListener("click", async () => {
+      const template = document.getElementById("templateSelect").value;
+      const raw = document.getElementById("templateData").value.trim();
+      if (!raw) return setStatus("statusTemplate", "error", "❌ Please enter JSON data or click 'Load example data'.");
+      let data;
+      try { data = JSON.parse(raw); } catch { return setStatus("statusTemplate", "error", "❌ Invalid JSON — please check your data."); }
+
+      const btn = document.getElementById("btnTemplate");
+      btn.disabled = true;
+      setStatus("statusTemplate", "info", '<span class="spinner"></span> Generating ' + template + ' PDF…');
+
+      try {
+        const res = await fetch("/generate/" + template, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: res.statusText }));
+          throw new Error(err.error || "Server error");
+        }
+        const blob = await res.blob();
+        downloadBlob(blob, template + ".pdf");
+        setStatus("statusTemplate", "success", "✅ " + template + ".pdf generated and downloaded!");
+      } catch (err) {
+        setStatus("statusTemplate", "error", "❌ " + err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    // ---- Raw Spec ----
+    document.getElementById("btnSpec").addEventListener("click", async () => {
+      const raw = document.getElementById("specData").value.trim();
+      if (!raw) return setStatus("statusSpec", "error", "❌ Please enter a JSON spec.");
+      let spec;
+      try { spec = JSON.parse(raw); } catch { return setStatus("statusSpec", "error", "❌ Invalid JSON — please check your spec."); }
+
+      const btn = document.getElementById("btnSpec");
+      btn.disabled = true;
+      setStatus("statusSpec", "info", '<span class="spinner"></span> Generating PDF from spec…');
+
+      try {
+        const res = await fetch("/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ spec }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: res.statusText }));
+          throw new Error(err.error || "Server error");
+        }
+        const blob = await res.blob();
+        downloadBlob(blob, "document.pdf");
+        setStatus("statusSpec", "success", "✅ document.pdf generated and downloaded!");
+      } catch (err) {
+        setStatus("statusSpec", "error", "❌ " + err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

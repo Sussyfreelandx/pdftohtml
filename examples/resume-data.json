@@ -1,0 +1,45 @@
+{
+  "personal": {
+    "name": "Alex Johnson",
+    "title": "Senior Full-Stack Developer",
+    "email": "alex@example.com",
+    "phone": "(555) 987-6543",
+    "website": "https://alexjohnson.dev",
+    "linkedin": "https://linkedin.com/in/alexjohnson",
+    "summary": "Experienced full-stack developer with 8+ years building scalable web applications. Passionate about clean code, performance, and mentoring junior engineers."
+  },
+  "experience": [
+    {
+      "company": "TechStart Inc.",
+      "role": "Senior Developer",
+      "dates": "Jan 2022 – Present",
+      "bullets": [
+        "Led migration of monolith to microservices, reducing deploy time by 70%",
+        "Mentored team of 5 junior developers",
+        "Designed and implemented real-time notification system serving 100K+ users"
+      ]
+    },
+    {
+      "company": "WebFlow Agency",
+      "role": "Full-Stack Developer",
+      "dates": "Mar 2018 – Dec 2021",
+      "bullets": [
+        "Built 20+ client websites using React and Node.js",
+        "Implemented CI/CD pipelines with GitHub Actions",
+        "Reduced page load times by 40% through optimization"
+      ]
+    }
+  ],
+  "education": [
+    {
+      "school": "State University",
+      "degree": "B.S. Computer Science",
+      "dates": "2014 – 2018"
+    }
+  ],
+  "skills": ["JavaScript", "TypeScript", "React", "Node.js", "Python", "PostgreSQL", "Docker", "AWS"],
+  "certifications": [
+    { "name": "AWS Certified Solutions Architect", "link": "https://aws.amazon.com/certification/" },
+    { "name": "Google Cloud Professional", "link": "https://cloud.google.com/certification" }
+  ]
+}

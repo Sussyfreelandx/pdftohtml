@@ -1,0 +1,33 @@
+{
+  "meta": { "Title": "Premium Report Preview", "Author": "PDF Engine" },
+  "pageNumbers": { "align": "center" },
+  "elements": [
+    { "type": "heading", "level": 1, "value": "Market Analysis Report — Q1 2026", "align": "center", "color": "#2E5090" },
+    { "type": "text", "value": "Prepared by the Research Division  •  February 25, 2026", "align": "center", "fontSize": 11, "color": "#777777", "moveDown": 1 },
+    { "type": "divider", "color": "#2E5090", "thickness": 2 },
+
+    { "type": "heading", "level": 2, "value": "Executive Summary" },
+    { "type": "text", "value": "Global markets showed strong recovery in Q1 2026 with technology stocks leading the rally. The S&P 500 gained 8.3% while emerging markets rose 6.1%. Our proprietary model indicates continued upward momentum through mid-year.", "fontSize": 11, "lineGap": 3, "moveDown": 0.5 },
+    { "type": "list", "items": ["S&P 500: +8.3% YTD", "NASDAQ: +11.2% YTD", "Emerging Markets: +6.1% YTD"], "fontSize": 11 },
+
+    { "type": "heading", "level": 2, "value": "Detailed Sector Analysis" },
+    { "type": "text", "value": "The following sections contain our proprietary analysis and recommendations...", "fontSize": 11, "moveDown": 0.5 },
+
+    {
+      "type": "overlay",
+      "label": "🔓 Unlock Full Report — Click Here",
+      "url": "https://example.com/subscribe/premium-report",
+      "height": 250,
+      "opacity": 0.88,
+      "color": "#FAFAFA",
+      "labelColor": "#0B6623",
+      "labelSize": 20,
+      "lines": 8,
+      "lineColor": "#E0E0E0"
+    },
+
+    { "type": "spacer", "lines": 1 },
+    { "type": "divider" },
+    { "type": "text", "value": "This report was generated with PDF Engine. The blurred section above is a preview — click the link to access the full content.", "fontSize": 10, "color": "#999999", "align": "center" }
+  ]
+}
