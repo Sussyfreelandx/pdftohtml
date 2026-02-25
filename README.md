@@ -828,43 +828,165 @@ All `POST` endpoints return the PDF file as a binary download (`Content-Type: ap
 
 ## Deploy to the Cloud (Render / Railway)
 
-You can deploy the PDF Engine to the cloud so the web dashboard and API are accessible from anywhere — no local setup needed.
+You can deploy the PDF Engine to the cloud so the web dashboard and all API endpoints are accessible from anywhere — **no local Node.js install, no command line, nothing to run on your computer**. You just open a URL in your browser and everything works.
 
-### Option 1 — Deploy to Render (recommended, free tier available)
+---
 
-1. **Push this repo** to your GitHub account (it's already there if you cloned it)
-2. Go to [https://render.com](https://render.com) and sign in with GitHub
-3. Click **New → Web Service**
-4. Select your `node.js` repository
-5. Render will detect the `render.yaml` file automatically. If not, use these settings:
-   - **Build Command:** `npm install`
+### Deploy to Render — Full Step-by-Step Walkthrough
+
+Render is recommended because it has a **free tier** that works with this project, including Puppeteer/Chromium support.
+
+#### Step 1 — Make sure this repo is on your GitHub
+
+You should already have this repository on your GitHub account at `https://github.com/YOUR_USERNAME/node.js`. If you forked or cloned it, it's already there. You can verify by going to `https://github.com/YOUR_USERNAME/node.js` in your browser — you should see files like `package.json`, `src/`, `public/`, `render.yaml`.
+
+> **You do NOT need to install anything on your computer for this.** Everything happens through the Render website.
+
+#### Step 2 — Create a Render account
+
+1. Go to **[https://render.com](https://render.com)**
+2. Click **Get Started for Free** (top right)
+3. Click **Sign up with GitHub** — this is the easiest option because Render will automatically have access to your repos
+4. Authorize Render to access your GitHub account when prompted
+5. You'll land on the Render dashboard
+
+#### Step 3 — Create a new Web Service
+
+1. On the Render dashboard, click the **New +** button (top right of the page)
+2. Select **Web Service** from the dropdown
+3. You'll see a list of your GitHub repositories. Find and select the **`node.js`** repository
+   - If you don't see it, click **Configure account** on the right side and grant Render access to the repository
+4. Click **Connect** next to the repository
+
+#### Step 4 — Configure the service settings
+
+Render will show you a settings form. Fill it in **exactly** like this:
+
+| Setting | What to enter |
+|---|---|
+| **Name** | `pdf-engine` (or any name you want — this becomes part of your URL) |
+| **Region** | Pick the one closest to you (e.g. `Oregon (US West)` or `Frankfurt (EU Central)`) |
+| **Branch** | `copilot/create-pdf-generation-engine` (or `main` if you merged the PR) |
+| **Runtime** | `Node` |
+| **Build Command** | `npm install` |
+| **Start Command** | `node src/start.js` |
+| **Instance Type** | `Free` |
+
+> **About the branch:** The branch that has all the code is `copilot/create-pdf-generation-engine`. If you've already merged the pull request into `main`, use `main` instead. You can check which branch has the code by going to your repo on GitHub and switching branches.
+
+> **About the `render.yaml` file:** This repo includes a `render.yaml` file that pre-configures these settings. Render may auto-detect it and pre-fill the form for you. If it does, just verify the values match the table above and proceed.
+
+#### Step 5 — Set environment variables
+
+Scroll down on the same settings page to the **Environment Variables** section. Add these three variables:
+
+| Key | Value | Why |
+|---|---|---|
+| `PORT` | `3000` | Tells the server which port to listen on (Render routes external traffic to this port) |
+| `NODE_ENV` | `production` | Enables production optimizations |
+| `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD` | `false` | Ensures Chromium is downloaded during the build (needed for HTML-to-PDF) |
+
+To add each one: click **Add Environment Variable**, type the key in the left box and the value in the right box.
+
+#### Step 6 — Deploy
+
+1. Click the **Create Web Service** button at the bottom of the page
+2. Render will start building your service. You'll see a **build log** that looks like this:
+   ```
+   ==> Cloning from https://github.com/YOUR_USERNAME/node.js
+   ==> Checking out commit abc1234
+   ==> Using Node version 20.x
+   ==> Running build command: npm install
+   added 150 packages in 30s
+   ==> Downloading Chromium...
+   ==> Build successful 🎉
+   ==> Starting service with: node src/start.js
+   🚀 PDF Engine running at http://localhost:3000
+   ```
+3. The build takes **3–8 minutes** (most of the time is downloading Chromium). Be patient.
+4. When it's done, the status will change to **Live** (green) and you'll see your URL at the top of the page
+
+#### Step 7 — Access your live service
+
+Your service URL will look something like:
+```
+https://pdf-engine-xxxx.onrender.com
+```
+(where `xxxx` is a random string Render assigns)
+
+1. **Click that URL** or paste it into your browser
+2. You'll see the **PDF Engine Web Dashboard** — the same interface you'd see on localhost
+3. Everything works from this URL:
+   - **Upload HTML** tab: drag and drop an HTML file from your desktop, click Generate → PDF downloads
+   - **URL → PDF** tab: enter any website URL, click Generate → PDF of that page downloads
+   - **Templates** tab: select a template like Invoice, click "Load example data", click Generate → PDF downloads
+   - **Raw Spec** tab: paste a JSON spec, click Generate → fully custom PDF downloads
+
+> **Bookmark this URL** — it's your permanent PDF generation service. You can share it with others too.
+
+#### What happens on Render's free tier
+
+- Your service **sleeps after 15 minutes of inactivity** (no requests). The first request after it sleeps takes ~30 seconds to wake it up. After that, responses are fast.
+- You get **750 hours/month** of free usage, which is more than enough for a single service running 24/7.
+- If you need it to never sleep, upgrade to the Starter plan ($7/month).
+
+---
+
+### Deploy to Railway (alternative)
+
+Railway is another cloud platform. It doesn't have a permanent free tier but gives you a $5 trial credit.
+
+1. Go to **[https://railway.app](https://railway.app)** and sign in with GitHub
+2. Click **New Project** → **Deploy from GitHub Repo**
+3. Select your `node.js` repository
+4. Railway will auto-detect it as a Node.js app and set `npm install` as the build command
+5. Go to **Settings** → **Networking** → click **Generate Domain** to get a public URL
+6. Go to **Settings** → **Deploy** and set:
    - **Start Command:** `node src/start.js`
-   - **Environment:** Node
-6. Click **Create Web Service**
-7. Wait for the build to complete (3–5 minutes)
-8. Your service will be live at `https://pdf-engine-xxxx.onrender.com`
-9. Open that URL in your browser — you'll see the web dashboard
+7. Go to **Variables** and add:
+   - `PORT` = `3000`
+   - `NODE_ENV` = `production`
+8. Railway will auto-deploy. Your URL will be something like `https://pdf-engine.up.railway.app`
 
-> **Important for Render free tier:** Puppeteer (used for HTML-to-PDF) requires Chromium. Render's free tier includes it. If you see a Chrome-related error, add this environment variable: `PUPPETEER_EXECUTABLE_PATH` = `/usr/bin/google-chrome-stable`
+---
 
-### Option 2 — Deploy to Railway
+### Troubleshooting deployment
 
-1. Go to [https://railway.app](https://railway.app) and sign in with GitHub
-2. Click **New Project → Deploy from GitHub Repo**
-3. Select your repository
-4. Railway will auto-detect it as a Node.js app
-5. Set the start command to `node src/start.js`
-6. Deploy — your URL will be something like `https://pdf-engine.up.railway.app`
+**The build fails with "Chromium download failed" or "Cannot find Chrome"**
+This means Puppeteer couldn't download or find Chromium. Try these fixes:
+1. Make sure `PUPPETEER_SKIP_CHROMIUM_DOWNLOAD` is set to `false` (not `true`)
+2. On Render, try adding another environment variable: `PUPPETEER_EXECUTABLE_PATH` = `/usr/bin/google-chrome-stable`
+3. If still failing, go to the **Shell** tab in Render and run: `npx puppeteer browsers install chrome`
 
-### After deployment
+**The service shows "502 Bad Gateway" or "Service Unavailable"**
+This usually means the build succeeded but the server crashed on startup. Go to the **Logs** tab in Render to see the error. Common causes:
+- Port mismatch: make sure `PORT` environment variable is `3000`
+- Missing dependency: check the build log for `npm install` errors
 
-Once deployed, open your service URL in a browser. You'll see the web dashboard where you can:
-- **Upload HTML files** from your desktop and convert them to PDF
-- **Enter URLs** to convert web pages to PDF
-- **Use templates** by selecting one and pasting JSON data
-- **Build custom PDFs** with the raw spec editor
+**The service is very slow on the first request**
+On Render's free tier, the service sleeps after 15 minutes of inactivity. The first request after sleeping takes ~30 seconds. This is normal and expected on the free tier.
 
-All features work exactly the same as localhost — the only difference is the URL.
+**Template / spec generation works but HTML-to-PDF doesn't**
+HTML-to-PDF requires Chromium. If template PDFs work but the Upload HTML and URL→PDF tabs fail, Chromium is the issue. See the "Cannot find Chrome" fix above.
+
+**I updated my code — how do I redeploy?**
+Render auto-deploys whenever you push to the branch you configured. Just push your changes to GitHub and Render will rebuild automatically. You can also click **Manual Deploy → Deploy latest commit** on the Render dashboard.
+
+---
+
+### After deployment — how to use each feature
+
+Once your service is live at `https://YOUR-APP.onrender.com`:
+
+| What you want to do | How to do it |
+|---|---|
+| Convert an HTML file to PDF | Open dashboard → **Upload HTML** tab → drag your `.html` file into the box → click **Generate PDF** → it downloads |
+| Convert a web page to PDF | Open dashboard → **URL → PDF** tab → paste the URL → click **Generate PDF** → it downloads |
+| Generate an invoice/resume/etc. | Open dashboard → **Templates** tab → select template → click **Load example data** (or paste your own JSON) → click **Generate PDF** |
+| Build a completely custom PDF | Open dashboard → **Raw Spec** tab → paste your JSON spec → click **Generate PDF** |
+| Use the API from code/curl | Send HTTP requests to `https://YOUR-APP.onrender.com/generate/invoice`, `/convert`, etc. — same endpoints as localhost |
+
+All features work identically whether you're on localhost or the deployed URL. The only difference is the domain name.
 
 ---
 
