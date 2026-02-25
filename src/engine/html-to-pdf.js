@@ -1,35 +1,41 @@
-const puppeteer = require("puppeteer");
+const puppeteer = require("puppeteer-core");
 const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
 
 /**
  * Detect a usable Chrome / Chromium executable.
- * Priority: 1) PUPPETEER_EXECUTABLE_PATH env  2) Puppeteer's managed browser
- * 3) Common system paths (Render, Debian/Ubuntu, macOS, Windows).
+ *
+ * Since we use puppeteer-core (which does NOT bundle its own Chrome), we must
+ * always find a system-installed Chrome or Chromium.  This makes deployment to
+ * cloud platforms (Render, Railway, Fly.io, etc.) 100 % reliable because
+ * Chrome is installed via the Dockerfile's `apt-get install`, not via a
+ * fragile npm postinstall download.
+ *
+ * Priority:
+ *   1) PUPPETEER_EXECUTABLE_PATH env var (explicit override)
+ *   2) Common system paths (Docker, Debian/Ubuntu, macOS, Windows)
+ *   3) `which` lookup as a last resort (Linux / macOS)
  */
 function detectChromePath() {
-  // 1. Explicit env override
+  // 1. Explicit env override — always wins
   if (process.env.PUPPETEER_EXECUTABLE_PATH) {
     return process.env.PUPPETEER_EXECUTABLE_PATH;
   }
 
-  // 2. Let Puppeteer find its own managed browser (works when postinstall ran)
-  try {
-    const managed = puppeteer.executablePath();
-    if (managed && fs.existsSync(managed)) return managed;
-  } catch (_) {
-    /* ignore — fall through to system paths */
-  }
-
-  // 3. Common system paths
+  // 2. Common system paths (ordered by likelihood on cloud → desktop)
   const candidates = [
+    // Docker / Debian / Ubuntu (apt-get install chromium)
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    // Google Chrome (apt-get install google-chrome-stable)
     "/usr/bin/google-chrome-stable",
     "/usr/bin/google-chrome",
-    "/usr/bin/chromium-browser",
-    "/usr/bin/chromium",
+    // Snap (Ubuntu desktop)
     "/snap/bin/chromium",
+    // macOS
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    // Windows
     "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
     "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
   ];
@@ -37,15 +43,17 @@ function detectChromePath() {
     if (fs.existsSync(p)) return p;
   }
 
-  // 4. Try `which` as last resort (Linux/macOS)
+  // 3. `which` lookup as last resort (Linux / macOS)
   try {
-    const found = execSync("which google-chrome-stable || which google-chrome || which chromium-browser || which chromium", { encoding: "utf8" }).trim();
+    const found = execSync(
+      "which chromium || which chromium-browser || which google-chrome-stable || which google-chrome",
+      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }
+    ).trim();
     if (found) return found;
   } catch (_) {
     /* not found */
   }
 
-  // Return undefined — Puppeteer will try its default and give a clearer error
   return undefined;
 }
 
@@ -158,8 +166,18 @@ class HtmlToPdfConverter {
     let browser;
     try {
       const execPath = detectChromePath();
+      if (!execPath) {
+        throw new Error(
+          "Chrome / Chromium not found. puppeteer-core requires a system-installed browser.\n" +
+          "  • Docker/Linux: apt-get install -y chromium\n" +
+          "  • macOS:        brew install --cask google-chrome\n" +
+          "  • Windows:      Install Google Chrome from https://google.com/chrome\n" +
+          "  • Or set PUPPETEER_EXECUTABLE_PATH to the path of your Chrome binary."
+        );
+      }
       const launchOptions = {
         headless: true,
+        executablePath: execPath,
         args: [
           "--no-sandbox",
           "--disable-setuid-sandbox",
@@ -168,7 +186,6 @@ class HtmlToPdfConverter {
           "--font-render-hinting=none",     // sharper text rendering
         ],
       };
-      if (execPath) launchOptions.executablePath = execPath;
 
       browser = await puppeteer.launch(launchOptions);
 

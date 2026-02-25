@@ -70,7 +70,7 @@ When you run `npm install`, three libraries are downloaded automatically:
 |---|---|---|
 | **[pdfkit](https://www.npmjs.com/package/pdfkit)** | Low-level PDF document creation library | The core engine that draws text, tables, links, images, and shapes into PDF files |
 | **[express](https://www.npmjs.com/package/express)** | Web server framework | Powers the optional HTTP API so you can generate PDFs by sending requests to a URL |
-| **[puppeteer](https://www.npmjs.com/package/puppeteer)** | Headless Chromium browser | Powers the HTML-to-PDF conversion engine — renders any HTML/CSS page into a pixel-perfect, Adobe-quality PDF |
+| **[puppeteer-core](https://www.npmjs.com/package/puppeteer-core)** | Headless Chromium browser API | Powers the HTML-to-PDF conversion engine — renders any HTML/CSS page into a pixel-perfect, Adobe-quality PDF. Uses system-installed Chrome (no download issues on cloud platforms) |
 
 **Dev dependency** (only needed for development/testing):
 
@@ -79,7 +79,9 @@ When you run `npm install`, three libraries are downloaded automatically:
 | **[jest](https://www.npmjs.com/package/jest)** | Test runner | Used to run the automated test suite (`npm test`) |
 
 > **You do NOT need to install these manually.** `npm install` handles everything.
-> If you ever need to add them to a different project: `npm install pdfkit express`
+> If you ever need to add them to a different project: `npm install pdfkit express puppeteer-core`
+
+> **Note for HTML-to-PDF on your local machine:** `puppeteer-core` requires a Chromium/Chrome browser to already be installed on your system. If you have Google Chrome installed (desktop), it will be detected automatically. On Linux, run `sudo apt-get install -y chromium`. On cloud platforms (Render), the included `Dockerfile` installs Chromium for you automatically.
 
 ---
 
@@ -834,11 +836,11 @@ You can deploy the PDF Engine to the cloud so the web dashboard and all API endp
 
 ### Deploy to Render — Full Step-by-Step Walkthrough
 
-Render is recommended because it has a **free tier** that works with this project, including Puppeteer/Chromium support.
+Render is recommended because it has a **free tier** that works with this project. This repo includes a **Dockerfile** that installs Chromium via `apt-get`, which is 100% reliable — no more "Could not find Chrome" errors.
 
 #### Step 1 — Make sure this repo is on your GitHub
 
-You should already have this repository on your GitHub account at `https://github.com/YOUR_USERNAME/node.js`. If you forked or cloned it, it's already there. You can verify by going to `https://github.com/YOUR_USERNAME/node.js` in your browser — you should see files like `package.json`, `src/`, `public/`, `render.yaml`.
+You should already have this repository on your GitHub account at `https://github.com/YOUR_USERNAME/node.js`. If you forked or cloned it, it's already there. You can verify by going to `https://github.com/YOUR_USERNAME/node.js` in your browser — you should see files like `package.json`, `src/`, `public/`, `Dockerfile`, `render.yaml`.
 
 > **You do NOT need to install anything on your computer for this.** Everything happens through the Render website.
 
@@ -867,26 +869,27 @@ Render will show you a settings form. Fill it in **exactly** like this:
 | **Name** | `pdf-engine` (or any name you want — this becomes part of your URL) |
 | **Region** | Pick the one closest to you (e.g. `Oregon (US West)` or `Frankfurt (EU Central)`) |
 | **Branch** | `copilot/create-pdf-generation-engine` (or `main` if you merged the PR) |
-| **Runtime** | `Node` |
-| **Build Command** | `npm install && npx puppeteer browsers install chrome` |
-| **Start Command** | `node src/start.js` |
+| **Runtime** | **`Docker`** |
 | **Instance Type** | `Free` |
+
+> **Important:** Choose **Docker** as the runtime — not Node. The `Dockerfile` in this repo installs Chromium via `apt-get`, which permanently fixes the "Could not find Chrome" error. Render will automatically detect the `Dockerfile` and use it.
+
+> **You do NOT need to set Build Command or Start Command** — the Dockerfile handles everything.
 
 > **About the branch:** The branch that has all the code is `copilot/create-pdf-generation-engine`. If you've already merged the pull request into `main`, use `main` instead. You can check which branch has the code by going to your repo on GitHub and switching branches.
 
-> **About the `render.yaml` file:** This repo includes a `render.yaml` file that pre-configures these settings. Render may auto-detect it and pre-fill the form for you. If it does, just verify the values match the table above and proceed.
-
 #### Step 5 — Set environment variables
 
-Scroll down on the same settings page to the **Environment Variables** section. Add these three variables:
+Scroll down on the same settings page to the **Environment Variables** section. Add these two variables:
 
 | Key | Value | Why |
 |---|---|---|
 | `PORT` | `3000` | Tells the server which port to listen on (Render routes external traffic to this port) |
 | `NODE_ENV` | `production` | Enables production optimizations |
-| `PUPPETEER_CACHE_DIR` | `/opt/render/.cache/puppeteer` | Tells Puppeteer where to find the Chrome binary it installed during the build |
 
 To add each one: click **Add Environment Variable**, type the key in the left box and the value in the right box.
+
+> **You do NOT need `PUPPETEER_CACHE_DIR` or `PUPPETEER_EXECUTABLE_PATH`** — the Dockerfile sets these automatically.
 
 #### Step 6 — Deploy
 
@@ -895,16 +898,18 @@ To add each one: click **Add Environment Variable**, type the key in the left bo
    ```
    ==> Cloning from https://github.com/YOUR_USERNAME/node.js
    ==> Checking out commit abc1234
-   ==> Using Node version 20.x
-   ==> Running build command: npm install && npx puppeteer browsers install chrome
-   added 150 packages in 30s
-   Downloading Chrome...
-   Chrome downloaded to /opt/render/.cache/puppeteer
+   ==> Building with Dockerfile
+   Step 1/9 : FROM node:22-slim
+   Step 2/9 : RUN apt-get update && apt-get install -y chromium ...
+   Step 3/9 : ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+   ...
+   Step 8/9 : COPY . .
+   Step 9/9 : CMD ["node", "src/start.js"]
    ==> Build successful 🎉
-   ==> Starting service with: node src/start.js
+   ==> Starting service
    🚀 PDF Engine running at http://localhost:3000
    ```
-3. The build takes **3–8 minutes** (most of the time is downloading Chromium). Be patient.
+3. The build takes **3–8 minutes** (most of the time is downloading the Docker image and Chromium). Be patient.
 4. When it's done, the status will change to **Live** (green) and you'll see your URL at the top of the page
 
 #### Step 7 — Access your live service
@@ -953,13 +958,12 @@ Railway is another cloud platform. It doesn't have a permanent free tier but giv
 
 ### Troubleshooting deployment
 
-**The build fails with "Chromium download failed" or "Cannot find Chrome"**
-This means Puppeteer couldn't download or find Chromium. Try these fixes in order:
-1. Go to the **Environment** tab in Render and add: `PUPPETEER_CACHE_DIR` = `/opt/render/.cache/puppeteer`
-2. Go to the **Settings** tab and change **Build Command** to: `npm install && npx puppeteer browsers install chrome`
-3. Click **Manual Deploy → Deploy latest commit** to trigger a fresh build
-4. If still failing, try also adding: `PUPPETEER_EXECUTABLE_PATH` = `/usr/bin/google-chrome-stable`
-5. As a last resort, go to the **Shell** tab in Render and run: `npx puppeteer browsers install chrome` then restart the service
+**"Could not find Chrome" or "Cannot find Chromium"**
+This happens if you chose the **Node** runtime instead of **Docker** on Render:
+1. Go to your service's **Settings** tab on Render
+2. Change **Runtime** from `Node` to **`Docker`**
+3. Click **Manual Deploy → Deploy latest commit**
+The Dockerfile installs Chromium via `apt-get`, which always works.
 
 **The service shows "502 Bad Gateway" or "Service Unavailable"**
 This usually means the build succeeded but the server crashed on startup. Go to the **Logs** tab in Render to see the error. Common causes:
@@ -970,7 +974,7 @@ This usually means the build succeeded but the server crashed on startup. Go to 
 On Render's free tier, the service sleeps after 15 minutes of inactivity. The first request after sleeping takes ~30 seconds. This is normal and expected on the free tier.
 
 **Template / spec generation works but HTML-to-PDF doesn't**
-HTML-to-PDF requires Chromium. If template PDFs work but the Upload HTML and URL→PDF tabs fail, Chromium is the issue. See the "Cannot find Chrome" fix above.
+HTML-to-PDF requires Chromium. Make sure you are using the **Docker** runtime on Render (not Node). The Docker runtime installs Chromium at build time.
 
 **I updated my code — how do I redeploy?**
 Render auto-deploys whenever you push to the branch you configured. Just push your changes to GitHub and Render will rebuild automatically. You can also click **Manual Deploy → Deploy latest commit** on the Render dashboard.
@@ -1018,7 +1022,7 @@ The test suite covers:
 ├── src/
 │   ├── engine/
 │   │   ├── pdf-engine.js      # Core PDF rendering engine (spec-based)
-│   │   └── html-to-pdf.js     # HTML-to-PDF conversion engine (Puppeteer)
+│   │   └── html-to-pdf.js     # HTML-to-PDF conversion engine (puppeteer-core)
 │   ├── templates/
 │   │   ├── index.js            # Template registry
 │   │   ├── invoice.js          # Invoice template
@@ -1046,6 +1050,8 @@ The test suite covers:
 │   ├── pdf-engine.test.js      # Engine, template, overlay & stealth link tests
 │   ├── server.test.js          # API server tests
 │   └── html-to-pdf.test.js     # HTML-to-PDF converter & /convert endpoint tests
+├── Dockerfile                  # Docker image for cloud deployment (installs Chromium)
+├── .dockerignore               # Docker build exclusions
 ├── render.yaml                 # Render deployment config (one-click deploy)
 ├── package.json
 └── README.md

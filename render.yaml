@@ -1,14 +1,12 @@
+# Render deployment — uses Docker so Chromium is installed via apt-get.
+# This permanently fixes the "Could not find Chrome" error.
 services:
   - type: web
     name: pdf-engine
-    runtime: node
+    runtime: docker
     plan: free
-    buildCommand: npm install && npx puppeteer browsers install chrome
-    startCommand: node src/start.js
     envVars:
       - key: PORT
         value: 3000
       - key: NODE_ENV
         value: production
-      - key: PUPPETEER_CACHE_DIR
-        value: /opt/render/.cache/puppeteer
