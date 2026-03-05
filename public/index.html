@@ -291,8 +291,45 @@
       <div class="options-row" style="margin-top: 8px;">
         <div>
           <label for="ctaBgColor">Button Color</label>
-          <input type="text" id="ctaBgColor" placeholder="#0f3460" value="#0f3460">
+          <input type="color" id="ctaBgColor" value="#0f3460" style="height: 38px; padding: 2px;">
         </div>
+        <div>
+          <label for="ctaTextColor">Text Color</label>
+          <input type="color" id="ctaTextColor" value="#FFFFFF" style="height: 38px; padding: 2px;">
+        </div>
+      </div>
+
+      <div class="options-row" style="margin-top: 8px;">
+        <div>
+          <label for="ctaWidth">Button Width (pt)</label>
+          <select id="ctaWidth">
+            <option value="120">Small (120)</option>
+            <option value="180" selected>Medium (180)</option>
+            <option value="240">Large (240)</option>
+            <option value="320">Extra Large (320)</option>
+          </select>
+        </div>
+        <div>
+          <label for="ctaHeight">Button Height (pt)</label>
+          <select id="ctaHeight">
+            <option value="28">Small (28)</option>
+            <option value="38" selected>Medium (38)</option>
+            <option value="48">Large (48)</option>
+            <option value="56">Extra Large (56)</option>
+          </select>
+        </div>
+        <div>
+          <label for="ctaFontSize">Font Size (pt)</label>
+          <select id="ctaFontSize">
+            <option value="10">10 pt</option>
+            <option value="14" selected>14 pt</option>
+            <option value="18">18 pt</option>
+            <option value="22">22 pt</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="options-row" style="margin-top: 8px;">
         <div>
           <label for="overlayFilename">Output Filename</label>
           <input type="text" id="overlayFilename" placeholder="overlay.pdf">
@@ -535,6 +572,10 @@
         formData.append("blurRadius", document.getElementById("blurRadius").value);
         formData.append("overlayOpacity", document.getElementById("overlayOpacity").value);
         formData.append("ctaBgColor", document.getElementById("ctaBgColor").value || "#0f3460");
+        formData.append("ctaTextColor", document.getElementById("ctaTextColor").value || "#FFFFFF");
+        formData.append("ctaWidth", document.getElementById("ctaWidth").value);
+        formData.append("ctaHeight", document.getElementById("ctaHeight").value);
+        formData.append("ctaFontSize", document.getElementById("ctaFontSize").value);
         formData.append("filename", document.getElementById("overlayFilename").value || "overlay.pdf");
 
         const res = await fetch("/overlay", { method: "POST", body: formData });

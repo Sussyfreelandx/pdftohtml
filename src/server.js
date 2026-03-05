@@ -195,7 +195,9 @@ function createServer(options = {}) {
    *   overlayColor  – Hex colour for overlay (default: "#FFFFFF")
    *   ctaBgColor    – Hex colour for button background (default: "#0f3460")
    *   ctaTextColor  – Hex colour for button text (default: "#FFFFFF")
-   *   ctaFontSize   – Button font size in pt (default: 18)
+   *   ctaFontSize   – Button font size in pt (default: 14)
+   *   ctaWidth      – Button width in pt (default: 180)
+   *   ctaHeight     – Button height in pt (default: 38)
    *   filename      – Output filename (default: "overlay.pdf")
    */
   app.post("/overlay", upload.single("file"), async (req, res) => {
@@ -213,6 +215,8 @@ function createServer(options = {}) {
       if (req.body.ctaBgColor) overrides.ctaBgColor = req.body.ctaBgColor;
       if (req.body.ctaTextColor) overrides.ctaTextColor = req.body.ctaTextColor;
       if (req.body.ctaFontSize) overrides.ctaFontSize = parseFloat(req.body.ctaFontSize);
+      if (req.body.ctaWidth) overrides.ctaWidth = parseFloat(req.body.ctaWidth);
+      if (req.body.ctaHeight) overrides.ctaHeight = parseFloat(req.body.ctaHeight);
 
       const buffer = await overlayEngine.processBuffer(req.file.buffer, overrides);
       const filename = req.body.filename || "overlay.pdf";

@@ -118,6 +118,30 @@ describe("PdfOverlayEngine", () => {
     expect(result).toBeInstanceOf(Buffer);
     expect(result.slice(0, 5).toString()).toBe("%PDF-");
   });
+
+  it("should use reduced default CTA size (180×38) and accept custom sizes", async () => {
+    const source = await createTestPdf();
+    // Verify defaults
+    const engine = new PdfOverlayEngine();
+    expect(engine.ctaWidth).toBe(180);
+    expect(engine.ctaHeight).toBe(38);
+    expect(engine.ctaFontSize).toBe(14);
+
+    // Verify custom sizes work
+    const result = await engine.processBuffer(source, {
+      ctaWidth: 120,
+      ctaHeight: 28,
+      ctaFontSize: 10,
+      ctaTextColor: "#FF0000",
+      ctaUrl: "https://example.com",
+    });
+
+    expect(result).toBeInstanceOf(Buffer);
+    expect(result.slice(0, 5).toString()).toBe("%PDF-");
+
+    const loaded = await PDFDocument.load(result);
+    expect(loaded.getPageCount()).toBe(1);
+  });
 });
 
 describe("POST /overlay endpoint", () => {

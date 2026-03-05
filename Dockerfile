@@ -6,11 +6,13 @@
 
 FROM node:22-slim
 
-# Install Chromium and its dependencies via apt-get.
-# This is 100% reliable — no Puppeteer download issues, no cache path
-# problems, no version mismatches.
+# Install Chromium, poppler-utils (for PDF-to-image conversion), and dependencies.
+# - chromium: headless browser for HTML-to-PDF conversion
+# - poppler-utils: pdftoppm for rendering PDF pages as images (used by overlay blur)
+# This is 100% reliable — no download issues, no cache path problems.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium \
+    poppler-utils \
     fonts-liberation \
     fonts-noto-color-emoji \
     fonts-noto-cjk \
