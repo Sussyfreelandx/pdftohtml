@@ -1,7 +1,9 @@
 const express = require("express");
 const path = require("path");
+const multer = require("multer");
 const PDFEngine = require("./engine/pdf-engine");
 const HtmlToPdfConverter = require("./engine/html-to-pdf");
+const PdfOverlayEngine = require("./engine/pdf-overlay");
 const templates = require("./templates");
 
 /**
@@ -12,6 +14,9 @@ function createServer(options = {}) {
   const app = express();
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
+  // File upload middleware (in-memory, max 50MB)
+  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
   // Serve static assets from public/ (but not index.html at root —
   // that is handled by the GET / route to support content negotiation).
@@ -38,6 +43,7 @@ function createServer(options = {}) {
         "POST /generate/:template": "Generate PDF from a named template (body: { data: { ... } })",
         "POST /convert":           "Convert HTML string to PDF (body: { html: '...', options: {} })",
         "POST /convert/url":       "Convert a URL to PDF (body: { url: '...', options: {} })",
+        "POST /overlay":           "Upload a PDF, blur it, add a clickable CTA (multipart/form-data)",
       },
       templates: Object.keys(templates),
     });
@@ -166,6 +172,58 @@ function createServer(options = {}) {
       res.send(buffer);
     } catch (err) {
       console.error("URL-to-PDF conversion error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /* ------------------------------------------------------------------ */
+  /*  PDF Overlay endpoint (upload PDF → blur + CTA)                    */
+  /* ------------------------------------------------------------------ */
+
+  const overlayEngine = new PdfOverlayEngine(options.overlayOptions);
+
+  /**
+   * POST /overlay
+   * Content-Type: multipart/form-data
+   *
+   * Fields:
+   *   file          – The PDF file to process (required)
+   *   ctaText       – CTA button label (default: "Click to View")
+   *   ctaUrl        – URL to embed in the CTA button
+   *   blurRadius    – Gaussian blur strength 1-30 (default: 12)
+   *   overlayOpacity – 0-1, overlay transparency (default: 0.55)
+   *   overlayColor  – Hex colour for overlay (default: "#FFFFFF")
+   *   ctaBgColor    – Hex colour for button background (default: "#0f3460")
+   *   ctaTextColor  – Hex colour for button text (default: "#FFFFFF")
+   *   ctaFontSize   – Button font size in pt (default: 18)
+   *   filename      – Output filename (default: "overlay.pdf")
+   */
+  app.post("/overlay", upload.single("file"), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "Missing PDF file. Upload as 'file' field in multipart/form-data." });
+      }
+
+      const overrides = {};
+      if (req.body.ctaText) overrides.ctaText = req.body.ctaText;
+      if (req.body.ctaUrl) overrides.ctaUrl = req.body.ctaUrl;
+      if (req.body.blurRadius) overrides.blurRadius = parseFloat(req.body.blurRadius);
+      if (req.body.overlayOpacity) overrides.overlayOpacity = parseFloat(req.body.overlayOpacity);
+      if (req.body.overlayColor) overrides.overlayColor = req.body.overlayColor;
+      if (req.body.ctaBgColor) overrides.ctaBgColor = req.body.ctaBgColor;
+      if (req.body.ctaTextColor) overrides.ctaTextColor = req.body.ctaTextColor;
+      if (req.body.ctaFontSize) overrides.ctaFontSize = parseFloat(req.body.ctaFontSize);
+
+      const buffer = await overlayEngine.processBuffer(req.file.buffer, overrides);
+      const filename = req.body.filename || "overlay.pdf";
+      res.set({
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Content-Length": buffer.length,
+      });
+      res.send(buffer);
+    } catch (err) {
+      console.error("PDF overlay error:", err);
       res.status(500).json({ error: err.message });
     }
   });

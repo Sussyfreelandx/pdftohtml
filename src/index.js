@@ -1,9 +1,10 @@
 const PDFEngine = require("./engine/pdf-engine");
 const HtmlToPdfConverter = require("./engine/html-to-pdf");
+const PdfOverlayEngine = require("./engine/pdf-overlay");
 const templates = require("./templates");
 const createServer = require("./server");
 
-module.exports = { PDFEngine, HtmlToPdfConverter, templates, createServer };
+module.exports = { PDFEngine, HtmlToPdfConverter, PdfOverlayEngine, templates, createServer };
 
 // Auto-start the server when this file is run directly (e.g. `node src/index.js`)
 // This ensures compatibility with hosts like Render that use the package.json "main" field
@@ -23,5 +24,6 @@ if (require.main === module) {
     console.log(`   POST /generate/:template   — Generate PDF from template`);
     console.log(`   POST /convert              — Convert HTML string to PDF`);
     console.log(`   POST /convert/url          — Convert a URL to PDF`);
+    console.log(`   POST /overlay              — Upload PDF → blur + CTA overlay`);
   });
 }

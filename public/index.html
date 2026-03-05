@@ -170,6 +170,7 @@
   <div class="tabs">
     <button class="tab-btn active" data-tab="upload">Upload HTML</button>
     <button class="tab-btn" data-tab="url">URL → PDF</button>
+    <button class="tab-btn" data-tab="overlay">PDF Overlay</button>
     <button class="tab-btn" data-tab="template">Templates</button>
     <button class="tab-btn" data-tab="spec">Raw Spec</button>
   </div>
@@ -246,7 +247,66 @@
     </div>
 
     <!-- ============================================================ -->
-    <!-- TAB 3: Templates                                              -->
+    <!-- TAB 3: PDF Overlay (upload PDF → blur + CTA)                  -->
+    <!-- ============================================================ -->
+    <div class="card" id="tab-overlay">
+      <h2>PDF Overlay — Blur &amp; CTA</h2>
+      <p class="subtitle">Upload any PDF, blur it with a semi-transparent overlay, and add a clickable call-to-action button.</p>
+
+      <div class="drop-zone" id="dropZonePdf">
+        <input type="file" id="pdfFile" accept=".pdf">
+        <div class="icon">📄</div>
+        <div class="label">Drag &amp; drop your PDF here</div>
+        <div class="hint">or click to browse — .pdf files only</div>
+      </div>
+      <div class="file-name" id="pdfFileName"></div>
+
+      <label for="ctaText">CTA Button Text</label>
+      <input type="text" id="ctaText" placeholder="Click to View" value="Click to View">
+
+      <label for="ctaUrl">CTA Link URL</label>
+      <input type="url" id="ctaUrl" placeholder="https://example.com/view">
+
+      <div class="options-row" style="margin-top: 16px;">
+        <div>
+          <label for="blurRadius">Blur Strength</label>
+          <select id="blurRadius">
+            <option value="6">Light (6)</option>
+            <option value="12" selected>Medium (12)</option>
+            <option value="20">Heavy (20)</option>
+            <option value="30">Maximum (30)</option>
+          </select>
+        </div>
+        <div>
+          <label for="overlayOpacity">Overlay Opacity</label>
+          <select id="overlayOpacity">
+            <option value="0.35">35% — Light frost</option>
+            <option value="0.55" selected>55% — Default</option>
+            <option value="0.70">70% — Heavy</option>
+            <option value="0.85">85% — Nearly opaque</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="options-row" style="margin-top: 8px;">
+        <div>
+          <label for="ctaBgColor">Button Color</label>
+          <input type="text" id="ctaBgColor" placeholder="#0f3460" value="#0f3460">
+        </div>
+        <div>
+          <label for="overlayFilename">Output Filename</label>
+          <input type="text" id="overlayFilename" placeholder="overlay.pdf">
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="btnOverlay" disabled>
+        Apply Overlay &amp; Download PDF
+      </button>
+      <div class="status" id="statusOverlay"></div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- TAB 4: Templates                                              -->
     <!-- ============================================================ -->
     <div class="card" id="tab-template">
       <h2>Generate from Template</h2>
@@ -433,6 +493,63 @@
         setStatus("statusUrl", "error", "❌ " + err.message);
       } finally {
         btn.disabled = false;
+      }
+    });
+
+    // ---- PDF Overlay (upload PDF → blur + CTA) ----
+    const dropZonePdf = document.getElementById("dropZonePdf");
+    const pdfFileInput = document.getElementById("pdfFile");
+    const pdfFileNameEl = document.getElementById("pdfFileName");
+    const btnOverlay = document.getElementById("btnOverlay");
+    let selectedPdfFile = null;
+
+    dropZonePdf.addEventListener("dragover", (e) => { e.preventDefault(); dropZonePdf.classList.add("dragover"); });
+    dropZonePdf.addEventListener("dragleave", () => dropZonePdf.classList.remove("dragover"));
+    dropZonePdf.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropZonePdf.classList.remove("dragover");
+      if (e.dataTransfer.files.length) handlePdfFile(e.dataTransfer.files[0]);
+    });
+    pdfFileInput.addEventListener("change", () => {
+      if (pdfFileInput.files.length) handlePdfFile(pdfFileInput.files[0]);
+    });
+
+    function handlePdfFile(file) {
+      selectedPdfFile = file;
+      pdfFileNameEl.textContent = "✅ " + file.name + " (" + (file.size / 1024).toFixed(1) + " KB)";
+      btnOverlay.disabled = false;
+      const out = document.getElementById("overlayFilename");
+      if (!out.value) out.value = file.name.replace(/\.pdf$/i, "") + "-overlay.pdf";
+    }
+
+    btnOverlay.addEventListener("click", async () => {
+      if (!selectedPdfFile) return;
+      btnOverlay.disabled = true;
+      setStatus("statusOverlay", "info", '<span class="spinner"></span> Applying overlay — this may take a moment…');
+
+      try {
+        const formData = new FormData();
+        formData.append("file", selectedPdfFile);
+        formData.append("ctaText", document.getElementById("ctaText").value || "Click to View");
+        formData.append("ctaUrl", document.getElementById("ctaUrl").value || "");
+        formData.append("blurRadius", document.getElementById("blurRadius").value);
+        formData.append("overlayOpacity", document.getElementById("overlayOpacity").value);
+        formData.append("ctaBgColor", document.getElementById("ctaBgColor").value || "#0f3460");
+        formData.append("filename", document.getElementById("overlayFilename").value || "overlay.pdf");
+
+        const res = await fetch("/overlay", { method: "POST", body: formData });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: res.statusText }));
+          throw new Error(err.error || "Server error");
+        }
+        const blob = await res.blob();
+        const fname = document.getElementById("overlayFilename").value || "overlay.pdf";
+        downloadBlob(blob, fname);
+        setStatus("statusOverlay", "success", "✅ Overlay PDF generated — <strong>" + fname + "</strong>");
+      } catch (err) {
+        setStatus("statusOverlay", "error", "❌ " + err.message);
+      } finally {
+        btnOverlay.disabled = false;
       }
     });
 

@@ -211,6 +211,45 @@ class HtmlToPdfConverter {
         });
       }
 
+      // Smart resize — detect content overflow and scale to fit -----------
+      // This prevents wide HTML layouts from breaking out of the PDF page.
+      if (merged.smartResize !== false) {
+        const contentMetrics = await page.evaluate(() => {
+          const body = document.body;
+          const html = document.documentElement;
+          return {
+            scrollWidth: Math.max(body.scrollWidth, html.scrollWidth),
+            clientWidth: html.clientWidth,
+          };
+        });
+
+        if (contentMetrics.scrollWidth > contentMetrics.clientWidth + 10) {
+          // Content is wider than the viewport — scale it down to fit
+          const scaleFactor = contentMetrics.clientWidth / contentMetrics.scrollWidth;
+          // Only scale if we don't shrink below 50% (avoid making text unreadable)
+          if (scaleFactor >= 0.5) {
+            // Using CSS zoom (Chromium-only, but Puppeteer always uses Chromium).
+            // transform:scale() is cross-browser but doesn't reflow content,
+            // which would cause clipping instead of proper layout adjustment.
+            await page.addStyleTag({
+              content: `
+                html {
+                  zoom: ${scaleFactor};
+                }
+              `,
+            });
+          } else {
+            // If the content is extremely wide, widen the viewport instead
+            // and re-render at the content's native width
+            await page.setViewport({
+              width: Math.ceil(contentMetrics.scrollWidth),
+              height: 900,
+              deviceScaleFactor: 2,
+            });
+          }
+        }
+      }
+
       // Inject page-break helpers ------------------------------------------
       // This CSS enforces the specification's page-break rules for headings,
       // orphans / widows, images, and tables so that content is never cut off.
@@ -278,6 +317,12 @@ class HtmlToPdfConverter {
       waitUntil: overrides.waitUntil || this.waitUntil,
       mediaType: overrides.mediaType || this.mediaType,
       meta: { ...this.meta, ...overrides.meta },
+      smartResize:
+        overrides.smartResize !== undefined
+          ? overrides.smartResize
+          : this.smartResize !== undefined
+            ? this.smartResize
+            : true,
     };
   }
 

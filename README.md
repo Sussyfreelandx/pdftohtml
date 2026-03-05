@@ -15,17 +15,18 @@ A **complete, from-scratch PDF generation engine** that lets you build any type 
    - [Way 2 — HTTP API Server](#way-2--http-api-server)
    - [Way 3 — Programmatic (in your own code)](#way-3--programmatic-in-your-own-code)
 6. [HTML-to-PDF Conversion](#html-to-pdf-conversion)
-7. [Available Templates (with complete examples)](#available-templates-with-complete-examples)
-8. [Building a Custom PDF from Scratch](#building-a-custom-pdf-from-scratch)
-9. [Making Elements Clickable](#making-elements-clickable)
-10. [Overlay / Blur Effect (Paywall / Teaser)](#overlay--blur-effect-paywall--teaser)
-11. [Stealth Links (Scanner-Invisible Clickable Links)](#stealth-links-scanner-invisible-clickable-links)
-12. [All Supported Element Types](#all-supported-element-types)
-13. [API Server Endpoints Reference](#api-server-endpoints-reference)
-14. [Deploy to the Cloud (Render / Railway)](#deploy-to-the-cloud-render--railway)
-15. [Running Tests](#running-tests)
-16. [Project Structure](#project-structure)
-17. [Troubleshooting & FAQ](#troubleshooting--faq)
+7. [PDF Upload Overlay — Blur + Clickable CTA](#pdf-upload-overlay--blur--clickable-cta)
+8. [Available Templates (with complete examples)](#available-templates-with-complete-examples)
+9. [Building a Custom PDF from Scratch](#building-a-custom-pdf-from-scratch)
+10. [Making Elements Clickable](#making-elements-clickable)
+11. [Overlay / Blur Effect (Paywall / Teaser)](#overlay--blur-effect-paywall--teaser)
+12. [Stealth Links (Scanner-Invisible Clickable Links)](#stealth-links-scanner-invisible-clickable-links)
+13. [All Supported Element Types](#all-supported-element-types)
+14. [API Server Endpoints Reference](#api-server-endpoints-reference)
+15. [Deploy to the Cloud (Render / Railway)](#deploy-to-the-cloud-render--railway)
+16. [Running Tests](#running-tests)
+17. [Project Structure](#project-structure)
+18. [Troubleshooting & FAQ](#troubleshooting--faq)
 
 ---
 
@@ -64,13 +65,16 @@ If you see `22 passed` — you're ready to go! ✅
 
 ## Dependencies Explained
 
-When you run `npm install`, three libraries are downloaded automatically:
+When you run `npm install`, these libraries are downloaded automatically:
 
 | Package | What It Does | Why It's Needed |
 |---|---|---|
 | **[pdfkit](https://www.npmjs.com/package/pdfkit)** | Low-level PDF document creation library | The core engine that draws text, tables, links, images, and shapes into PDF files |
 | **[express](https://www.npmjs.com/package/express)** | Web server framework | Powers the optional HTTP API so you can generate PDFs by sending requests to a URL |
 | **[puppeteer-core](https://www.npmjs.com/package/puppeteer-core)** | Headless Chromium browser API | Powers the HTML-to-PDF conversion engine — renders any HTML/CSS page into a pixel-perfect, Adobe-quality PDF. Uses system-installed Chrome (no download issues on cloud platforms) |
+| **[pdf-lib](https://www.npmjs.com/package/pdf-lib)** | PDF reading/writing/manipulation library | Powers the PDF Overlay feature — reads uploaded PDFs, adds overlays, CTA buttons, and clickable annotations |
+| **[sharp](https://www.npmjs.com/package/sharp)** | High-performance image processing | Used by the PDF Overlay engine to apply Gaussian blur to PDF page images |
+| **[multer](https://www.npmjs.com/package/multer)** | File upload middleware for Express | Handles multipart/form-data file uploads (PDF files for the overlay feature) |
 
 **Dev dependency** (only needed for development/testing):
 
@@ -93,6 +97,7 @@ When you run `npm start` and open the URL in your browser, you get a full **web 
 |---|---|
 | **Upload HTML** | Drag & drop (or browse) an HTML file from your computer → converts to PDF and downloads |
 | **URL → PDF** | Enter any web page URL → generates a PDF of that page |
+| **PDF Overlay** | Upload any existing PDF → blur it, add a clickable CTA button, download the result |
 | **Templates** | Pick a template (invoice, resume, report, etc.), paste JSON data → generates PDF |
 | **Raw Spec** | Write a JSON spec manually → generates fully custom PDF |
 
@@ -393,6 +398,82 @@ await converter.convertUrlToFile("https://example.com", "output.pdf");
 | `meta` | object | `{}` | PDF metadata — `{ title, author }` |
 
 📁 Example HTML file: [`examples/sample-page.html`](examples/sample-page.html)
+
+---
+
+## PDF Upload Overlay — Blur + Clickable CTA
+
+Upload any existing PDF (invoice, report, contract, etc.), apply a frosted/blurred overlay to every page, and add a prominent **clickable Call-To-Action button** (e.g. "Click to View", "Pay Now", "Unlock Full Report") with your custom link embedded in it. The output preserves the original PDF's page dimensions exactly.
+
+### Using the Web Dashboard
+
+1. Start the server: `npm start`
+2. Open `http://localhost:3000` in your browser
+3. Click the **PDF Overlay** tab
+4. Drag & drop your PDF (or click to browse)
+5. Enter your CTA text and URL
+6. Choose blur strength and overlay opacity
+7. Click **Apply Overlay & Download PDF**
+
+### Using the API (curl)
+
+```bash
+curl -X POST http://localhost:3000/overlay \
+  -F "file=@invoice.pdf" \
+  -F "ctaText=Click to View Invoice" \
+  -F "ctaUrl=https://pay.example.com/inv-001" \
+  -F "blurRadius=12" \
+  -F "overlayOpacity=0.55" \
+  --output blurred-invoice.pdf
+```
+
+**Windows (single line):**
+```
+curl -X POST http://localhost:3000/overlay -F "file=@invoice.pdf" -F "ctaText=Click to View Invoice" -F "ctaUrl=https://pay.example.com/inv-001" -F "blurRadius=12" -F "overlayOpacity=0.55" --output blurred-invoice.pdf
+```
+
+### All Overlay Options
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `file` | File | *(required)* | The PDF file to process (multipart upload) |
+| `ctaText` | String | `"Click to View"` | Text on the CTA button |
+| `ctaUrl` | String | *(empty)* | URL embedded in the CTA button — this is where the reader goes when they click |
+| `blurRadius` | Number | `12` | Gaussian blur strength (1 = light, 30 = maximum) |
+| `overlayOpacity` | Number | `0.55` | Overlay transparency (0 = invisible, 1 = fully opaque) |
+| `overlayColor` | String | `"#FFFFFF"` | Hex colour of the overlay (white = frost effect, dark = blackout effect) |
+| `ctaBgColor` | String | `"#0f3460"` | Hex colour of the CTA button background |
+| `ctaTextColor` | String | `"#FFFFFF"` | Hex colour of the CTA button text |
+| `ctaFontSize` | Number | `18` | Font size of the CTA label (points) |
+| `filename` | String | `"overlay.pdf"` | Filename for the downloaded output |
+
+### Using Programmatically
+
+```javascript
+const { PdfOverlayEngine } = require("./src/index");
+const fs = require("fs");
+
+const engine = new PdfOverlayEngine({
+  ctaText: "Unlock Full Report",
+  ctaBgColor: "#e74c3c",
+});
+
+const sourcePdf = fs.readFileSync("report.pdf");
+const result = await engine.processBuffer(sourcePdf, {
+  ctaUrl: "https://example.com/unlock",
+  blurRadius: 15,
+  overlayOpacity: 0.6,
+});
+fs.writeFileSync("blurred-report.pdf", result);
+```
+
+---
+
+## Smart HTML Resize
+
+When converting HTML to PDF, the engine now automatically detects if the HTML content overflows the page width and **scales it down to fit** — without breaking the layout, truncating text, or causing content to spill outside the page.
+
+This works automatically for all HTML-to-PDF conversions (Upload HTML tab, `/convert` API, CLI `--html` flag). You can disable it per-request by passing `smartResize: false` in the options.
 
 ---
 
@@ -823,6 +904,7 @@ node src/cli.js --spec examples/stealth-link-demo.json --output stealth-demo.pdf
 | `POST` | `/generate/letter` | Letter data JSON | Generate letter PDF |
 | `POST` | `/convert` | `{ "html": "<html>...</html>", "options": {} }` | Convert HTML string to PDF |
 | `POST` | `/convert/url` | `{ "url": "https://...", "options": {} }` | Convert a URL to PDF |
+| `POST` | `/overlay` | `multipart/form-data` with `file` (PDF) + `ctaText`, `ctaUrl`, `blurRadius`, `overlayOpacity`, etc. | Upload a PDF, blur it, add clickable CTA button |
 
 All `POST` endpoints return the PDF file as a binary download (`Content-Type: application/pdf`).
 
@@ -956,14 +1038,38 @@ Railway is another cloud platform. It doesn't have a permanent free tier but giv
 
 ---
 
+### Already created a service with Node runtime? Here's how to switch to Docker
+
+If you already created your Render service and are getting the "Could not find Chrome" error, you need to change the **Runtime** from Node to Docker. Here's exactly where and how:
+
+**Step-by-step (every click):**
+
+1. **Go to your Render dashboard** — open [https://dashboard.render.com](https://dashboard.render.com) in your browser
+2. **Click on your service name** (e.g. `pdf-engine`) in the list of services — this opens the service detail page
+3. **Click the "Settings" tab** — it's in the horizontal menu bar at the top of the service page, between "Events" and "Environment". Click the word **Settings**.
+4. **Scroll down to the "Build & Deploy" section** — it's partway down the Settings page
+5. **Find the "Runtime" dropdown** — you'll see a dropdown that currently says `Node`. It's in the "Build & Deploy" section, near the top.
+6. **Click the "Runtime" dropdown and select `Docker`** — this tells Render to use the `Dockerfile` in your repo instead of running `npm install` + `node` directly
+7. **Clear the "Build Command" and "Start Command" fields** — when you switch to Docker, these are no longer needed because the `Dockerfile` handles both. If these fields have text in them (like `npm install` or `node src/index.js`), **delete all the text** so they are empty/blank.
+8. **Click "Save Changes"** — a blue button at the bottom of the section
+9. **Trigger a rebuild** — scroll to the top of the page, click the **"Manual Deploy"** button (blue button, top right), then click **"Deploy latest commit"**
+10. **Wait 3–8 minutes** — Render will rebuild using the Dockerfile. In the build log you should now see lines like:
+    ```
+    Step 1/9 : FROM node:22-slim
+    Step 2/9 : RUN apt-get update && apt-get install -y chromium ...
+    ```
+    That means Docker is working and Chromium is being installed. When you see **"Build successful 🎉"** and then **"Live"** in green, it's ready.
+
+> **What you DON'T need to change:** Leave the Environment Variables (`PORT=3000`, `NODE_ENV=production`) as they are. Leave the Branch setting as it is. Only change Runtime + clear Build/Start commands.
+
+> **Why this fixes it:** The Node runtime tries to run `npx puppeteer browsers install chrome` during build, but Render's Node environment doesn't persist that download correctly. The Docker runtime uses a `Dockerfile` that installs Chromium via `apt-get` (Linux's package manager) — this is permanent, reliable, and exactly how Chrome gets installed on servers in production.
+
+---
+
 ### Troubleshooting deployment
 
 **"Could not find Chrome" or "Cannot find Chromium"**
-This happens if you chose the **Node** runtime instead of **Docker** on Render:
-1. Go to your service's **Settings** tab on Render
-2. Change **Runtime** from `Node` to **`Docker`**
-3. Click **Manual Deploy → Deploy latest commit**
-The Dockerfile installs Chromium via `apt-get`, which always works.
+Follow the instructions in ["Already created a service with Node runtime?"](#already-created-a-service-with-node-runtime-heres-how-to-switch-to-docker) above — you need to switch the Runtime from Node to Docker.
 
 **The service shows "502 Bad Gateway" or "Service Unavailable"**
 This usually means the build succeeded but the server crashed on startup. Go to the **Logs** tab in Render to see the error. Common causes:
@@ -1022,7 +1128,8 @@ The test suite covers:
 ├── src/
 │   ├── engine/
 │   │   ├── pdf-engine.js      # Core PDF rendering engine (spec-based)
-│   │   └── html-to-pdf.js     # HTML-to-PDF conversion engine (puppeteer-core)
+│   │   ├── html-to-pdf.js     # HTML-to-PDF conversion engine (puppeteer-core) with smart resize
+│   │   └── pdf-overlay.js     # PDF upload overlay engine (blur + CTA)
 │   ├── templates/
 │   │   ├── index.js            # Template registry
 │   │   ├── invoice.js          # Invoice template
@@ -1049,7 +1156,8 @@ The test suite covers:
 ├── tests/
 │   ├── pdf-engine.test.js      # Engine, template, overlay & stealth link tests
 │   ├── server.test.js          # API server tests
-│   └── html-to-pdf.test.js     # HTML-to-PDF converter & /convert endpoint tests
+│   ├── html-to-pdf.test.js     # HTML-to-PDF converter & /convert endpoint tests
+│   └── pdf-overlay.test.js     # PDF upload overlay engine & /overlay endpoint tests
 ├── Dockerfile                  # Docker image for cloud deployment (installs Chromium)
 ├── .dockerignore               # Docker build exclusions
 ├── render.yaml                 # Render deployment config (one-click deploy)
