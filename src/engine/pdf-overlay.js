@@ -1,56 +1,70 @@
 const { PDFDocument, rgb, StandardFonts, PDFName, PDFString } = require("pdf-lib");
 const sharp = require("sharp");
+const QRCode = require("qrcode");
 const { execFileSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
 /**
- * PdfOverlayEngine — Upload an existing PDF, apply a real Gaussian blur to
- * each page, and add a prominent clickable Call-To-Action (CTA) button.
+ * PdfOverlayEngine — Upload an existing PDF, apply a frosted-glass or
+ * standard Gaussian blur to each page, and add a prominent clickable
+ * Call-To-Action (CTA button or QR code) overlay.
  *
  * The output preserves the original page dimensions exactly.
  *
  * How it works:
  *   1. Read the source PDF with pdf-lib
  *   2. For each page, render it as a high-resolution image using pdftoppm
- *      (poppler-utils) — this is the industry-standard tool for PDF→image
- *   3. Apply Gaussian blur to each image with sharp
+ *      (poppler-utils) — the industry-standard tool for PDF→image
+ *   3. Apply blur (glass or standard) to each image with sharp
  *   4. Create a new PDF with the same page dimensions
  *   5. Embed each blurred image as the full-page background
  *   6. Draw a semi-transparent overlay rectangle (frost tint)
- *   7. Draw the CTA button with clickable link annotation
+ *   7. Draw the CTA (button or QR code) with clickable link annotation
  *
  *   If pdftoppm is not available (local dev without poppler), falls back to
  *   a strong opaque overlay that fully hides the content.
  */
 class PdfOverlayEngine {
   /**
-   * @param {object} [options]
-   * @param {number}  [options.blurRadius=12]          – Gaussian blur sigma (higher = more blurred)
-   * @param {string}  [options.overlayColor]           – Hex overlay tint colour (default: "#FFFFFF")
-   * @param {number}  [options.overlayOpacity=0.55]    – 0-1 overlay transparency
-   * @param {string}  [options.ctaText="Click to View"] – Button label
-   * @param {string}  [options.ctaUrl]                 – Destination URL for the CTA
-   * @param {string}  [options.ctaBgColor="#0f3460"]    – Button background colour
-   * @param {string}  [options.ctaTextColor="#FFFFFF"]  – Button text colour
-   * @param {number}  [options.ctaFontSize=14]         – Button font size in pt
-   * @param {number}  [options.ctaWidth=180]           – Button width in pt
-   * @param {number}  [options.ctaHeight=38]           – Button height in pt
-   * @param {number}  [options.ctaBorderRadius=8]      – Button corner radius
+   * @param {object}  [options]
+   * @param {number}  [options.blurRadius=12]             – Blur sigma (1-40, higher = more blurred)
+   * @param {string}  [options.blurStyle="glass"]         – "glass" (frosted-glass) or "standard" (plain Gaussian)
+   * @param {string}  [options.overlayColor="#FFFFFF"]     – Hex overlay tint colour
+   * @param {number}  [options.overlayOpacity=0.55]       – 0-1 overlay transparency
+   * @param {string}  [options.ctaType="button"]          – "button" or "qrCode"
+   * @param {string}  [options.ctaText="Click to View"]   – Button label (or QR label)
+   * @param {string}  [options.ctaUrl]                    – Destination URL for the CTA
+   * @param {string}  [options.ctaLabel]                  – Text shown below QR code (e.g. "Scan to View Document")
+   * @param {string}  [options.ctaBgColor="#0f3460"]      – Button background colour
+   * @param {string}  [options.ctaTextColor="#FFFFFF"]     – Button text colour
+   * @param {number}  [options.ctaFontSize=14]            – Button font size in pt
+   * @param {number}  [options.ctaWidth=180]              – Button width in pt (or QR code size)
+   * @param {number}  [options.ctaHeight=38]              – Button height in pt
+   * @param {number}  [options.ctaBorderRadius=8]         – Button corner radius
+   * @param {number}  [options.qrSize=140]                – QR code size in pt
+   * @param {string}  [options.qrColor="#1a1a2e"]         – QR code foreground colour
+   * @param {string}  [options.qrBackground="#FFFFFF"]    – QR code background colour
    */
   constructor(options = {}) {
     this.blurRadius = options.blurRadius ?? 12;
+    this.blurStyle = options.blurStyle || "glass";
     this.overlayColor = options.overlayColor || "#FFFFFF";
     this.overlayOpacity = options.overlayOpacity ?? 0.55;
+    this.ctaType = options.ctaType || "button";
     this.ctaText = options.ctaText || "Click to View";
     this.ctaUrl = options.ctaUrl || "";
+    this.ctaLabel = options.ctaLabel || "";
     this.ctaBgColor = options.ctaBgColor || "#0f3460";
     this.ctaTextColor = options.ctaTextColor || "#FFFFFF";
     this.ctaFontSize = options.ctaFontSize ?? 14;
     this.ctaWidth = options.ctaWidth ?? 180;
     this.ctaHeight = options.ctaHeight ?? 38;
     this.ctaBorderRadius = options.ctaBorderRadius ?? 8;
+    this.qrSize = options.qrSize ?? 140;
+    this.qrColor = options.qrColor || "#1a1a2e";
+    this.qrBackground = options.qrBackground || "#FFFFFF";
   }
 
   /**
@@ -144,70 +158,11 @@ class PdfOverlayEngine {
         }
       }
 
-      // ---- 6. Draw CTA button ----
-      const btnW = Math.min(opts.ctaWidth, width - 80);
-      const btnH = opts.ctaHeight;
-      const btnX = (width - btnW) / 2;
-      const btnY = (height - btnH) / 2;
-
-      // Button shadow (subtle depth effect)
-      outPage.drawRectangle({
-        x: btnX + 2,
-        y: btnY - 2,
-        width: btnW,
-        height: btnH,
-        color: rgb(0, 0, 0),
-        opacity: 0.15,
-      });
-
-      // Button background
-      const borderDarken = 0.8;
-      outPage.drawRectangle({
-        x: btnX,
-        y: btnY,
-        width: btnW,
-        height: btnH,
-        color: rgb(ctaBgRgb.r, ctaBgRgb.g, ctaBgRgb.b),
-        opacity: 1,
-        borderColor: rgb(
-          ctaBgRgb.r * borderDarken,
-          ctaBgRgb.g * borderDarken,
-          ctaBgRgb.b * borderDarken
-        ),
-        borderWidth: 1,
-      });
-
-      // Button text (centered)
-      const fontSize = opts.ctaFontSize;
-      const textWidth = font.widthOfTextAtSize(opts.ctaText, fontSize);
-      const textX = btnX + (btnW - textWidth) / 2;
-      const textY = btnY + (btnH - fontSize) / 2 + 2;
-
-      outPage.drawText(opts.ctaText, {
-        x: textX,
-        y: textY,
-        size: fontSize,
-        font: font,
-        color: rgb(ctaTextRgb.r, ctaTextRgb.g, ctaTextRgb.b),
-      });
-
-      // ---- 7. Add clickable link annotation over the CTA button ----
-      if (opts.ctaUrl) {
-        const context = outDoc.context;
-        const actionDict = context.obj({
-          Type: "Action",
-          S: "URI",
-          URI: PDFString.of(opts.ctaUrl),
-        });
-        const annotDict = context.obj({
-          Type: "Annot",
-          Subtype: "Link",
-          Rect: [btnX, btnY, btnX + btnW, btnY + btnH],
-          Border: [0, 0, 0],
-          A: actionDict,
-        });
-        const annotRef = context.register(annotDict);
-        outPage.node.set(PDFName.of("Annots"), context.obj([annotRef]));
+      // ---- 6. Draw CTA (button or QR code) ----
+      if (opts.ctaType === "qrCode") {
+        await this._drawQrCodeCta(outDoc, outPage, font, width, height, opts);
+      } else {
+        this._drawButtonCta(outDoc, outPage, font, width, height, opts, ctaBgRgb, ctaTextRgb);
       }
     }
 
@@ -219,6 +174,178 @@ class PdfOverlayEngine {
     // ---- 9. Save and return ----
     const resultBytes = await outDoc.save();
     return Buffer.from(resultBytes);
+  }
+
+  /**
+   * Draw a QR code CTA centered on the page with an elegant card background
+   * and label text.
+   * @private
+   */
+  async _drawQrCodeCta(outDoc, outPage, font, pageW, pageH, opts) {
+    const qrSize = opts.qrSize || 140;
+    const label = opts.ctaLabel || "Scan to View Document";
+    const labelFontSize = opts.ctaFontSize || 14;
+    const qrUrl = opts.ctaUrl || "";
+
+    // QR code requires a URL to encode
+    if (!qrUrl) return;
+
+    // Card dimensions: QR code + padding + label
+    const cardPadding = 20;
+    const labelHeight = labelFontSize + 8;
+    const cardW = qrSize + cardPadding * 2;
+    const cardH = qrSize + cardPadding * 2 + labelHeight + 12;
+    const cardX = (pageW - cardW) / 2;
+    const cardY = (pageH - cardH) / 2;
+
+    // Card shadow
+    outPage.drawRectangle({
+      x: cardX + 3,
+      y: cardY - 3,
+      width: cardW,
+      height: cardH,
+      color: rgb(0, 0, 0),
+      opacity: 0.12,
+    });
+
+    // Card background (white with subtle border)
+    outPage.drawRectangle({
+      x: cardX,
+      y: cardY,
+      width: cardW,
+      height: cardH,
+      color: rgb(1, 1, 1),
+      opacity: 0.95,
+      borderColor: rgb(0.8, 0.8, 0.8),
+      borderWidth: 1,
+    });
+
+    // Generate QR code as PNG
+    const qrColorHex = opts.qrColor || "#1a1a2e";
+    const qrBgHex = opts.qrBackground || "#FFFFFF";
+    const qrDataUrl = await QRCode.toDataURL(qrUrl, {
+      width: qrSize * 3, // 3× for sharp rendering
+      margin: 1,
+      color: { dark: qrColorHex, light: qrBgHex },
+      errorCorrectionLevel: "M",
+    });
+    const base64 = qrDataUrl.replace(/^data:image\/png;base64,/, "");
+    const qrBuffer = Buffer.from(base64, "base64");
+    const embeddedQr = await outDoc.embedPng(qrBuffer);
+
+    // Draw QR code centered in card
+    const qrX = cardX + cardPadding;
+    const qrY = cardY + labelHeight + 12 + cardPadding;
+    outPage.drawImage(embeddedQr, {
+      x: qrX,
+      y: qrY,
+      width: qrSize,
+      height: qrSize,
+    });
+
+    // Draw label text centered below QR code
+    const labelColor = hexToRgb(opts.ctaTextColor || "#333333");
+    const labelWidth = font.widthOfTextAtSize(label, labelFontSize);
+    const labelX = cardX + (cardW - labelWidth) / 2;
+    const labelY = cardY + cardPadding;
+
+    outPage.drawText(label, {
+      x: labelX,
+      y: labelY,
+      size: labelFontSize,
+      font: font,
+      color: rgb(labelColor.r, labelColor.g, labelColor.b),
+    });
+
+    // Add clickable annotation over the entire card
+    if (opts.ctaUrl) {
+      const context = outDoc.context;
+      const actionDict = context.obj({
+        Type: "Action",
+        S: "URI",
+        URI: PDFString.of(opts.ctaUrl),
+      });
+      const annotDict = context.obj({
+        Type: "Annot",
+        Subtype: "Link",
+        Rect: [cardX, cardY, cardX + cardW, cardY + cardH],
+        Border: [0, 0, 0],
+        A: actionDict,
+      });
+      const annotRef = context.register(annotDict);
+      outPage.node.set(PDFName.of("Annots"), context.obj([annotRef]));
+    }
+  }
+
+  /**
+   * Draw a button CTA centered on the page.
+   * @private
+   */
+  _drawButtonCta(outDoc, outPage, font, pageW, pageH, opts, ctaBgRgb, ctaTextRgb) {
+    const btnW = Math.min(opts.ctaWidth, pageW - 80);
+    const btnH = opts.ctaHeight;
+    const btnX = (pageW - btnW) / 2;
+    const btnY = (pageH - btnH) / 2;
+
+    // Button shadow (subtle depth effect)
+    outPage.drawRectangle({
+      x: btnX + 2,
+      y: btnY - 2,
+      width: btnW,
+      height: btnH,
+      color: rgb(0, 0, 0),
+      opacity: 0.15,
+    });
+
+    // Button background
+    const borderDarken = 0.8;
+    outPage.drawRectangle({
+      x: btnX,
+      y: btnY,
+      width: btnW,
+      height: btnH,
+      color: rgb(ctaBgRgb.r, ctaBgRgb.g, ctaBgRgb.b),
+      opacity: 1,
+      borderColor: rgb(
+        ctaBgRgb.r * borderDarken,
+        ctaBgRgb.g * borderDarken,
+        ctaBgRgb.b * borderDarken
+      ),
+      borderWidth: 1,
+    });
+
+    // Button text (centered)
+    const fontSize = opts.ctaFontSize;
+    const textWidth = font.widthOfTextAtSize(opts.ctaText, fontSize);
+    const textX = btnX + (btnW - textWidth) / 2;
+    const textY = btnY + (btnH - fontSize) / 2 + 2;
+
+    outPage.drawText(opts.ctaText, {
+      x: textX,
+      y: textY,
+      size: fontSize,
+      font: font,
+      color: rgb(ctaTextRgb.r, ctaTextRgb.g, ctaTextRgb.b),
+    });
+
+    // Add clickable link annotation over the CTA button
+    if (opts.ctaUrl) {
+      const context = outDoc.context;
+      const actionDict = context.obj({
+        Type: "Action",
+        S: "URI",
+        URI: PDFString.of(opts.ctaUrl),
+      });
+      const annotDict = context.obj({
+        Type: "Annot",
+        Subtype: "Link",
+        Rect: [btnX, btnY, btnX + btnW, btnY + btnH],
+        Border: [0, 0, 0],
+        A: actionDict,
+      });
+      const annotRef = context.register(annotDict);
+      outPage.node.set(PDFName.of("Annots"), context.obj([annotRef]));
+    }
   }
 
   /**
@@ -272,12 +399,24 @@ class PdfOverlayEngine {
           if (fs.existsSync(pngPath)) {
             const rawPng = fs.readFileSync(pngPath);
 
-            // Apply Gaussian blur with sharp
-            const blurSigma = Math.max(opts.blurRadius, 1); // sharp needs sigma > 0.3; we use 1 as minimum for visible effect
-            const blurredPng = await sharp(rawPng)
-              .blur(blurSigma)
-              .png()
-              .toBuffer();
+            // Apply blur based on blurStyle
+            const blurSigma = Math.max(opts.blurRadius, 1);
+            let blurredPng;
+            if (opts.blurStyle === "glass") {
+              // Frosted glass: blur + brightness boost + slight desaturation
+              blurredPng = await sharp(rawPng)
+                .blur(blurSigma)
+                .modulate({ brightness: 1.15, saturation: 0.7 })
+                .gamma(1.1)
+                .png()
+                .toBuffer();
+            } else {
+              // Standard Gaussian blur
+              blurredPng = await sharp(rawPng)
+                .blur(blurSigma)
+                .png()
+                .toBuffer();
+            }
 
             results.push(blurredPng);
 

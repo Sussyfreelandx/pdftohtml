@@ -25,5 +25,6 @@ if (require.main === module) {
     console.log(`   POST /convert              — Convert HTML string to PDF`);
     console.log(`   POST /convert/url          — Convert a URL to PDF`);
     console.log(`   POST /overlay              — Upload PDF → blur + CTA overlay`);
+    console.log(`   POST /merge                — Merge multiple PDFs into one`);
   });
 }

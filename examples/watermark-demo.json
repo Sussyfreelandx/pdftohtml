@@ -1,0 +1,14 @@
+{
+  "meta": { "title": "Watermark Demo", "author": "PDF Engine" },
+  "elements": [
+    { "type": "watermark", "text": "DRAFT", "opacity": 0.15, "fontSize": 72, "color": "#CCCCCC" },
+    { "type": "heading", "level": 1, "value": "Quarterly Report — Q1 2026" },
+    { "type": "text", "value": "This document is a draft and has not been finalized.", "color": "#CC0000" },
+    { "type": "spacer", "lines": 1 },
+    { "type": "heading", "level": 2, "value": "Executive Summary" },
+    { "type": "text", "value": "Revenue grew 18% quarter-over-quarter driven by enterprise sales. Active users reached 1.6M, a 22% increase from Q4 2025." },
+    { "type": "spacer", "lines": 1 },
+    { "type": "heading", "level": 2, "value": "Key Metrics" },
+    { "type": "table", "headers": ["Metric", "Q4 2025", "Q1 2026", "Change"], "rows": [["Revenue", "$45M", "$53M", "+18%"], ["Active Users", "1.31M", "1.60M", "+22%"], ["NPS Score", "62", "68", "+6"]] }
+  ]
+}

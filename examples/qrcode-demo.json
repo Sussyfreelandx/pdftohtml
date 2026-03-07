@@ -1,0 +1,20 @@
+{
+  "meta": { "title": "QR Code Demo", "author": "PDF Engine" },
+  "elements": [
+    { "type": "heading", "level": 1, "value": "Invoice #INV-2026-042" },
+    { "type": "text", "value": "Amount Due: $1,250.00" },
+    { "type": "spacer", "lines": 1 },
+    {
+      "type": "qrCode",
+      "data": "https://pay.example.com/inv-2026-042",
+      "size": 140,
+      "align": "center",
+      "label": "Scan to Pay",
+      "link": "https://pay.example.com/inv-2026-042",
+      "color": "#1a1a2e"
+    },
+    { "type": "spacer", "lines": 1 },
+    { "type": "divider" },
+    { "type": "text", "value": "Or click the QR code above to pay online.", "align": "center", "color": "#666666" }
+  ]
+}

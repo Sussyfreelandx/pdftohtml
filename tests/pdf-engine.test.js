@@ -313,6 +313,143 @@ describe("PDFEngine", () => {
     expect(buf.length).toBeGreaterThan(0);
     expect(buf.slice(0, 5).toString()).toBe("%PDF-");
   });
+
+  /* ---------- QR Code element ---------- */
+
+  test("qrCode element generates a valid PDF with embedded QR code", async () => {
+    const spec = {
+      elements: [
+        { type: "qrCode", data: "https://example.com" },
+      ],
+    };
+    const buf = await engine.generateToBuffer(spec);
+    expect(Buffer.isBuffer(buf)).toBe(true);
+    expect(buf.slice(0, 5).toString()).toBe("%PDF-");
+    expect(buf.length).toBeGreaterThan(500);
+  });
+
+  test("qrCode element supports custom size, alignment, and label", async () => {
+    const spec = {
+      elements: [
+        {
+          type: "qrCode",
+          data: "https://pay.example.com/inv-001",
+          size: 150,
+          align: "center",
+          label: "Scan to Pay",
+          color: "#1a1a2e",
+          background: "#F5F5F5",
+        },
+      ],
+    };
+    const buf = await engine.generateToBuffer(spec);
+    expect(buf.length).toBeGreaterThan(500);
+    expect(buf.slice(0, 5).toString()).toBe("%PDF-");
+  });
+
+  test("qrCode element with link makes QR code clickable", async () => {
+    const spec = {
+      elements: [
+        {
+          type: "qrCode",
+          data: "https://example.com/verify",
+          link: "https://example.com/verify",
+          size: 100,
+        },
+      ],
+    };
+    const buf = await engine.generateToBuffer(spec);
+    expect(buf.length).toBeGreaterThan(0);
+    const pdfRaw = buf.toString("latin1");
+    expect(pdfRaw).toContain("/URI (https://example.com/verify)");
+  });
+
+  test("qrCode element without data is silently skipped", async () => {
+    const spec = {
+      elements: [
+        { type: "qrCode" },
+        { type: "text", value: "After empty QR" },
+      ],
+    };
+    const buf = await engine.generateToBuffer(spec);
+    expect(buf.length).toBeGreaterThan(0);
+  });
+
+  test("qrCode element generates to file", async () => {
+    const spec = {
+      elements: [
+        { type: "heading", level: 1, value: "Payment Invoice" },
+        { type: "qrCode", data: "https://pay.example.com", size: 120, align: "center", label: "Scan QR to Pay" },
+        { type: "text", value: "Amount: $500.00" },
+      ],
+    };
+    const outPath = path.join(OUT_DIR, "test-qrcode.pdf");
+    const result = await engine.generateToFile(spec, outPath);
+    expect(fs.existsSync(result)).toBe(true);
+    const data = fs.readFileSync(result);
+    expect(data.slice(0, 5).toString()).toBe("%PDF-");
+  });
+
+  /* ---------- Watermark element ---------- */
+
+  test("watermark element renders a single centered watermark", async () => {
+    const spec = {
+      elements: [
+        { type: "watermark", text: "DRAFT" },
+        { type: "text", value: "This document is a draft." },
+      ],
+    };
+    const buf = await engine.generateToBuffer(spec);
+    expect(Buffer.isBuffer(buf)).toBe(true);
+    expect(buf.slice(0, 5).toString()).toBe("%PDF-");
+    expect(buf.length).toBeGreaterThan(0);
+  });
+
+  test("watermark element supports custom styling", async () => {
+    const spec = {
+      elements: [
+        {
+          type: "watermark",
+          text: "CONFIDENTIAL",
+          color: "#FF0000",
+          opacity: 0.2,
+          fontSize: 60,
+          angle: -30,
+        },
+        { type: "heading", level: 1, value: "Secret Report" },
+      ],
+    };
+    const buf = await engine.generateToBuffer(spec);
+    expect(buf.length).toBeGreaterThan(0);
+    expect(buf.slice(0, 5).toString()).toBe("%PDF-");
+  });
+
+  test("watermark element supports repeat tiling", async () => {
+    const spec = {
+      elements: [
+        { type: "watermark", text: "SAMPLE", repeat: true, opacity: 0.1, fontSize: 40 },
+        { type: "text", value: "Sample document content" },
+      ],
+    };
+    const buf = await engine.generateToBuffer(spec);
+    expect(buf.length).toBeGreaterThan(0);
+    expect(buf.slice(0, 5).toString()).toBe("%PDF-");
+  });
+
+  test("watermark element generates to file", async () => {
+    const spec = {
+      elements: [
+        { type: "watermark", text: "VOID" },
+        { type: "heading", level: 1, value: "Voided Invoice" },
+        { type: "text", value: "This invoice has been voided." },
+      ],
+    };
+    const outPath = path.join(OUT_DIR, "test-watermark.pdf");
+    const result = await engine.generateToFile(spec, outPath);
+    expect(fs.existsSync(result)).toBe(true);
+    const data = fs.readFileSync(result);
+    expect(data.slice(0, 5).toString()).toBe("%PDF-");
+  });
 });
 
 describe("Templates", () => {

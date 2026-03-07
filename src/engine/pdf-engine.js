@@ -1,4 +1,5 @@
 const PDFDocument = require("pdfkit");
+const QRCode = require("qrcode");
 const fs = require("fs");
 const path = require("path");
 
@@ -35,17 +36,17 @@ class PDFEngine {
    * @param {string}  filePath – Destination path.
    * @returns {Promise<string>} Resolved with the absolute file path.
    */
-  generateToFile(spec, filePath) {
-    return new Promise((resolve, reject) => {
-      const absolutePath = path.resolve(filePath);
-      const dir = path.dirname(absolutePath);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  async generateToFile(spec, filePath) {
+    const absolutePath = path.resolve(filePath);
+    const dir = path.dirname(absolutePath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-      const doc = this._createDocument(spec);
-      const stream = fs.createWriteStream(absolutePath);
-      doc.pipe(stream);
-      this._render(doc, spec);
-      doc.end();
+    const doc = this._createDocument(spec);
+    const stream = fs.createWriteStream(absolutePath);
+    doc.pipe(stream);
+    await this._render(doc, spec);
+    doc.end();
+    return new Promise((resolve, reject) => {
       stream.on("finish", () => resolve(absolutePath));
       stream.on("error", reject);
     });
@@ -56,15 +57,15 @@ class PDFEngine {
    * @param {object} spec – Document specification.
    * @returns {Promise<Buffer>}
    */
-  generateToBuffer(spec) {
+  async generateToBuffer(spec) {
+    const doc = this._createDocument(spec);
+    const chunks = [];
+    doc.on("data", (chunk) => chunks.push(chunk));
+    await this._render(doc, spec);
+    doc.end();
     return new Promise((resolve, reject) => {
-      const doc = this._createDocument(spec);
-      const chunks = [];
-      doc.on("data", (chunk) => chunks.push(chunk));
       doc.on("end", () => resolve(Buffer.concat(chunks)));
       doc.on("error", reject);
-      this._render(doc, spec);
-      doc.end();
     });
   }
 
@@ -74,12 +75,12 @@ class PDFEngine {
    * @param {Writable} stream – Any Node.js writable stream.
    * @returns {Promise<void>}
    */
-  generateToStream(spec, stream) {
+  async generateToStream(spec, stream) {
+    const doc = this._createDocument(spec);
+    doc.pipe(stream);
+    await this._render(doc, spec);
+    doc.end();
     return new Promise((resolve, reject) => {
-      const doc = this._createDocument(spec);
-      doc.pipe(stream);
-      this._render(doc, spec);
-      doc.end();
       stream.on("finish", resolve);
       stream.on("error", reject);
     });
@@ -102,10 +103,10 @@ class PDFEngine {
   }
 
   /** Walk the spec and render every element. */
-  _render(doc, spec) {
+  async _render(doc, spec) {
     const elements = spec.elements || spec.content || [];
     for (const el of elements) {
-      this._renderElement(doc, el);
+      await this._renderElement(doc, el);
     }
 
     // Add page numbers if requested
@@ -115,7 +116,7 @@ class PDFEngine {
   }
 
   /** Dispatch a single element to the correct renderer. */
-  _renderElement(doc, el) {
+  async _renderElement(doc, el) {
     switch (el.type) {
       case "text":       return this._renderText(doc, el);
       case "heading":    return this._renderHeading(doc, el);
@@ -129,6 +130,8 @@ class PDFEngine {
       case "rect":       return this._renderRect(doc, el);
       case "overlay":    return this._renderOverlay(doc, el);
       case "stealthLink": return this._renderStealthLink(doc, el);
+      case "qrCode":     return this._renderQrCode(doc, el);
+      case "watermark":  return this._renderWatermark(doc, el);
       case "pageBreak":  return doc.addPage();
       default:
         // Unknown type — silently skip so the engine stays forward-compatible.
@@ -494,6 +497,132 @@ class PDFEngine {
     }
 
     if (el.moveDown) doc.moveDown(el.moveDown);
+  }
+
+  /**
+   * Render a QR code — generates a QR code image from the given data (URL,
+   * text, etc.) and embeds it in the PDF.
+   *
+   * Properties:
+   *   data       – The string to encode (URL, text, etc.) — REQUIRED
+   *   size       – Width and height in points (default: 120)
+   *   x          – Manual x position (optional, defaults to current x)
+   *   y          – Manual y position (optional, defaults to current y)
+   *   align      – "left" | "center" | "right" (ignored if x is set)
+   *   color      – QR module color (default: "#000000")
+   *   background – Background color (default: "#FFFFFF")
+   *   label      – Optional text label displayed below the QR code
+   *   labelSize  – Font size of the label (default: 10)
+   *   link       – Makes the QR code image clickable
+   *   moveDown   – Lines to move down after rendering
+   */
+  async _renderQrCode(doc, el) {
+    if (!el.data) return;
+    const size = el.size || 120;
+    const color = el.color || "#000000";
+    const background = el.background || "#FFFFFF";
+
+    // Generate QR code as a PNG data-URI buffer
+    const qrDataUrl = await QRCode.toDataURL(el.data, {
+      width: size * 2, // 2× for retina sharpness
+      margin: 1,
+      color: { dark: color, light: background },
+      errorCorrectionLevel: "M",
+    });
+
+    // Convert data URL to buffer
+    const base64 = qrDataUrl.replace(/^data:image\/png;base64,/, "");
+    const imgBuffer = Buffer.from(base64, "base64");
+
+    // Calculate position
+    let x = el.x;
+    if (x === undefined) {
+      const contentWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+      if (el.align === "center") {
+        x = doc.page.margins.left + (contentWidth - size) / 2;
+      } else if (el.align === "right") {
+        x = doc.page.margins.left + contentWidth - size;
+      } else {
+        x = doc.x;
+      }
+    }
+    const y = el.y !== undefined ? el.y : doc.y;
+
+    // Embed QR code image
+    doc.image(imgBuffer, x, y, { width: size, height: size });
+
+    // Clickable area
+    if (el.link) {
+      doc.link(x, y, size, size, el.link);
+    }
+
+    doc.y = y + size + 4;
+
+    // Optional label below QR code
+    if (el.label) {
+      const labelSize = el.labelSize || 10;
+      doc.font(this.defaultFont).fontSize(labelSize).fillColor("#666666");
+      doc.text(el.label, x, doc.y, { width: size, align: "center" });
+      doc.fillColor("#000000");
+    }
+
+    if (el.moveDown) doc.moveDown(el.moveDown);
+  }
+
+  /**
+   * Render a watermark — draws diagonal semi-transparent text across the
+   * CURRENT page. Typically used for "DRAFT", "CONFIDENTIAL", "SAMPLE", etc.
+   *
+   * Properties:
+   *   text      – Watermark text (default: "DRAFT")
+   *   color     – Text color (default: "#CCCCCC")
+   *   opacity   – 0-1, transparency (default: 0.15)
+   *   fontSize  – Font size in points (default: 72)
+   *   angle     – Rotation angle in degrees (default: -45)
+   *   font      – Font name (default: "Helvetica-Bold")
+   *   repeat    – If true, tiles the watermark across the page (default: false)
+   */
+  _renderWatermark(doc, el) {
+    const text = el.text || "DRAFT";
+    const color = el.color || "#CCCCCC";
+    const opacity = el.opacity ?? 0.15;
+    const fontSize = el.fontSize || 72;
+    const angle = el.angle ?? -45;
+    const font = el.font || "Helvetica-Bold";
+
+    doc.save();
+    doc.opacity(opacity);
+    doc.font(font).fontSize(fontSize).fillColor(color);
+
+    const pageW = doc.page.width;
+    const pageH = doc.page.height;
+    const radians = (angle * Math.PI) / 180;
+
+    if (el.repeat) {
+      // Tile watermark across the page
+      const stepX = fontSize * 4;
+      const stepY = fontSize * 3;
+      for (let ty = -pageH; ty < pageH * 2; ty += stepY) {
+        for (let tx = -pageW; tx < pageW * 2; tx += stepX) {
+          doc.save();
+          doc.translate(tx, ty);
+          doc.rotate(angle, { origin: [0, 0] });
+          doc.text(text, 0, 0, { lineBreak: false });
+          doc.restore();
+        }
+      }
+    } else {
+      // Single centered watermark
+      const centerX = pageW / 2;
+      const centerY = pageH / 2;
+      doc.translate(centerX, centerY);
+      doc.rotate(angle, { origin: [0, 0] });
+      // Estimate text width for centering
+      const estWidth = text.length * fontSize * 0.5;
+      doc.text(text, -estWidth / 2, -fontSize / 2, { lineBreak: false });
+    }
+
+    doc.restore();
   }
 
   /* ---------- Utilities ---------- */

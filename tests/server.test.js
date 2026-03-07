@@ -112,4 +112,58 @@ describe("PDF Server API", () => {
     const res = await request("POST", "/generate/nonexistent", { data: {} });
     expect(res.status).toBe(400);
   });
+
+  test("POST /merge returns 400 with fewer than 2 files", async () => {
+    // No files at all
+    const url = new URL("/merge", baseUrl);
+    const boundary = "----TestBoundary123";
+    const body = `--${boundary}--\r\n`;
+    const res = await new Promise((resolve, reject) => {
+      const opts = {
+        method: "POST",
+        hostname: url.hostname,
+        port: url.port,
+        path: url.pathname,
+        headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+      };
+      const req = http.request(opts, (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => resolve({ status: res.statusCode, body: Buffer.concat(chunks) }));
+      });
+      req.on("error", reject);
+      req.write(body);
+      req.end();
+    });
+    expect(res.status).toBe(400);
+  });
+
+  test("POST /generate creates a PDF with qrCode element", async () => {
+    const res = await request("POST", "/generate", {
+      spec: {
+        elements: [
+          { type: "heading", level: 1, value: "QR Invoice" },
+          { type: "qrCode", data: "https://example.com/pay", size: 100 },
+        ],
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toBe("application/pdf");
+    expect(res.body.slice(0, 5).toString()).toBe("%PDF-");
+  });
+
+  test("POST /generate creates a PDF with watermark element", async () => {
+    const res = await request("POST", "/generate", {
+      spec: {
+        elements: [
+          { type: "watermark", text: "DRAFT" },
+          { type: "heading", level: 1, value: "Draft Document" },
+          { type: "text", value: "This is a draft." },
+        ],
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toBe("application/pdf");
+    expect(res.body.slice(0, 5).toString()).toBe("%PDF-");
+  });
 });

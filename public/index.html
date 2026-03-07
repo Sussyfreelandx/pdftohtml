@@ -171,6 +171,7 @@
     <button class="tab-btn active" data-tab="upload">Upload HTML</button>
     <button class="tab-btn" data-tab="url">URL → PDF</button>
     <button class="tab-btn" data-tab="overlay">PDF Overlay</button>
+    <button class="tab-btn" data-tab="merge">Merge PDFs</button>
     <button class="tab-btn" data-tab="template">Templates</button>
     <button class="tab-btn" data-tab="spec">Raw Spec</button>
   </div>
@@ -251,7 +252,7 @@
     <!-- ============================================================ -->
     <div class="card" id="tab-overlay">
       <h2>PDF Overlay — Blur &amp; CTA</h2>
-      <p class="subtitle">Upload any PDF, blur it with a semi-transparent overlay, and add a clickable call-to-action button.</p>
+      <p class="subtitle">Upload any PDF, apply a frosted-glass blur, and add a clickable CTA (button or QR code).</p>
 
       <div class="drop-zone" id="dropZonePdf">
         <input type="file" id="pdfFile" accept=".pdf">
@@ -261,20 +262,55 @@
       </div>
       <div class="file-name" id="pdfFileName"></div>
 
-      <label for="ctaText">CTA Button Text</label>
-      <input type="text" id="ctaText" placeholder="Click to View" value="Click to View">
+      <!-- CTA Type Toggle -->
+      <div class="options-row" style="margin-top: 16px;">
+        <div>
+          <label for="ctaType">CTA Type</label>
+          <select id="ctaType">
+            <option value="button" selected>🔘 Button</option>
+            <option value="qrCode">📱 QR Code</option>
+          </select>
+        </div>
+      </div>
 
       <label for="ctaUrl">CTA Link URL</label>
       <input type="url" id="ctaUrl" placeholder="https://example.com/view">
 
+      <!-- Button-specific fields -->
+      <div id="buttonFields">
+        <label for="ctaText">Button Text</label>
+        <input type="text" id="ctaText" placeholder="Click to View" value="Click to View">
+      </div>
+
+      <!-- QR-specific fields -->
+      <div id="qrFields" style="display: none;">
+        <label for="ctaLabel">Label Below QR Code</label>
+        <input type="text" id="ctaLabel" placeholder="Scan to View Document" value="Scan to View Document">
+
+        <div class="options-row" style="margin-top: 8px;">
+          <div>
+            <label for="qrSize">QR Code Size (pt)</label>
+            <select id="qrSize">
+              <option value="100">Small (100)</option>
+              <option value="140" selected>Medium (140)</option>
+              <option value="180">Large (180)</option>
+              <option value="220">Extra Large (220)</option>
+            </select>
+          </div>
+          <div>
+            <label for="qrColor">QR Code Color</label>
+            <input type="color" id="qrColor" value="#1a1a2e" style="height: 38px; padding: 2px;">
+          </div>
+        </div>
+      </div>
+
+      <!-- Blur Controls -->
       <div class="options-row" style="margin-top: 16px;">
         <div>
-          <label for="blurRadius">Blur Strength</label>
-          <select id="blurRadius">
-            <option value="6">Light (6)</option>
-            <option value="12" selected>Medium (12)</option>
-            <option value="20">Heavy (20)</option>
-            <option value="30">Maximum (30)</option>
+          <label for="blurStyle">Blur Style</label>
+          <select id="blurStyle">
+            <option value="glass" selected>🧊 Frosted Glass</option>
+            <option value="standard">🌫️ Standard Gaussian</option>
           </select>
         </div>
         <div>
@@ -288,44 +324,57 @@
         </div>
       </div>
 
-      <div class="options-row" style="margin-top: 8px;">
-        <div>
-          <label for="ctaBgColor">Button Color</label>
-          <input type="color" id="ctaBgColor" value="#0f3460" style="height: 38px; padding: 2px;">
-        </div>
-        <div>
-          <label for="ctaTextColor">Text Color</label>
-          <input type="color" id="ctaTextColor" value="#FFFFFF" style="height: 38px; padding: 2px;">
+      <div style="margin-top: 12px;">
+        <label for="blurRadius">Blur Strength: <strong id="blurRadiusValue">12</strong></label>
+        <input type="range" id="blurRadius" min="1" max="40" value="12" step="1"
+               style="width: 100%; height: 8px; cursor: pointer;"
+               oninput="document.getElementById('blurRadiusValue').textContent = this.value">
+        <div style="display: flex; justify-content: space-between; font-size: 11px; color: #888; margin-top: 2px;">
+          <span>Light (1)</span><span>Medium (12)</span><span>Heavy (25)</span><span>Max (40)</span>
         </div>
       </div>
 
-      <div class="options-row" style="margin-top: 8px;">
-        <div>
-          <label for="ctaWidth">Button Width (pt)</label>
-          <select id="ctaWidth">
-            <option value="120">Small (120)</option>
-            <option value="180" selected>Medium (180)</option>
-            <option value="240">Large (240)</option>
-            <option value="320">Extra Large (320)</option>
-          </select>
+      <!-- Button color/sizing (shown only for button CTA type) -->
+      <div id="buttonStyling">
+        <div class="options-row" style="margin-top: 12px;">
+          <div>
+            <label for="ctaBgColor">Button Color</label>
+            <input type="color" id="ctaBgColor" value="#0f3460" style="height: 38px; padding: 2px;">
+          </div>
+          <div>
+            <label for="ctaTextColor">Text Color</label>
+            <input type="color" id="ctaTextColor" value="#FFFFFF" style="height: 38px; padding: 2px;">
+          </div>
         </div>
-        <div>
-          <label for="ctaHeight">Button Height (pt)</label>
-          <select id="ctaHeight">
-            <option value="28">Small (28)</option>
-            <option value="38" selected>Medium (38)</option>
-            <option value="48">Large (48)</option>
-            <option value="56">Extra Large (56)</option>
-          </select>
-        </div>
-        <div>
-          <label for="ctaFontSize">Font Size (pt)</label>
-          <select id="ctaFontSize">
-            <option value="10">10 pt</option>
-            <option value="14" selected>14 pt</option>
-            <option value="18">18 pt</option>
-            <option value="22">22 pt</option>
-          </select>
+
+        <div class="options-row" style="margin-top: 8px;">
+          <div>
+            <label for="ctaWidth">Button Width (pt)</label>
+            <select id="ctaWidth">
+              <option value="120">Small (120)</option>
+              <option value="180" selected>Medium (180)</option>
+              <option value="240">Large (240)</option>
+              <option value="320">Extra Large (320)</option>
+            </select>
+          </div>
+          <div>
+            <label for="ctaHeight">Button Height (pt)</label>
+            <select id="ctaHeight">
+              <option value="28">Small (28)</option>
+              <option value="38" selected>Medium (38)</option>
+              <option value="48">Large (48)</option>
+              <option value="56">Extra Large (56)</option>
+            </select>
+          </div>
+          <div>
+            <label for="ctaFontSize">Font Size (pt)</label>
+            <select id="ctaFontSize">
+              <option value="10">10 pt</option>
+              <option value="14" selected>14 pt</option>
+              <option value="18">18 pt</option>
+              <option value="22">22 pt</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -340,6 +389,34 @@
         Apply Overlay &amp; Download PDF
       </button>
       <div class="status" id="statusOverlay"></div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- TAB: Merge PDFs                                               -->
+    <!-- ============================================================ -->
+    <div class="card" id="tab-merge">
+      <h2>Merge PDFs</h2>
+      <p class="subtitle">Upload two or more PDF files and combine them into a single document.</p>
+
+      <div class="drop-zone" id="dropZoneMerge">
+        <input type="file" id="mergeFiles" accept=".pdf" multiple>
+        <div class="icon">📑</div>
+        <div class="label">Drag &amp; drop your PDF files here</div>
+        <div class="hint">or click to browse — select 2 or more .pdf files</div>
+      </div>
+      <div class="file-name" id="mergeFileNames"></div>
+
+      <div class="options-row" style="margin-top: 16px;">
+        <div>
+          <label for="mergeFilename">Output Filename</label>
+          <input type="text" id="mergeFilename" placeholder="merged.pdf">
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="btnMerge" disabled>
+        Merge &amp; Download PDF
+      </button>
+      <div class="status" id="statusMerge"></div>
     </div>
 
     <!-- ============================================================ -->
@@ -540,6 +617,15 @@
     const btnOverlay = document.getElementById("btnOverlay");
     let selectedPdfFile = null;
 
+    // CTA type toggle — show/hide button vs QR fields
+    const ctaTypeSelect = document.getElementById("ctaType");
+    ctaTypeSelect.addEventListener("change", () => {
+      const isQr = ctaTypeSelect.value === "qrCode";
+      document.getElementById("buttonFields").style.display = isQr ? "none" : "block";
+      document.getElementById("qrFields").style.display = isQr ? "block" : "none";
+      document.getElementById("buttonStyling").style.display = isQr ? "none" : "block";
+    });
+
     dropZonePdf.addEventListener("dragover", (e) => { e.preventDefault(); dropZonePdf.classList.add("dragover"); });
     dropZonePdf.addEventListener("dragleave", () => dropZonePdf.classList.remove("dragover"));
     dropZonePdf.addEventListener("drop", (e) => {
@@ -567,16 +653,27 @@
       try {
         const formData = new FormData();
         formData.append("file", selectedPdfFile);
-        formData.append("ctaText", document.getElementById("ctaText").value || "Click to View");
+        formData.append("ctaType", document.getElementById("ctaType").value);
         formData.append("ctaUrl", document.getElementById("ctaUrl").value || "");
         formData.append("blurRadius", document.getElementById("blurRadius").value);
+        formData.append("blurStyle", document.getElementById("blurStyle").value);
         formData.append("overlayOpacity", document.getElementById("overlayOpacity").value);
-        formData.append("ctaBgColor", document.getElementById("ctaBgColor").value || "#0f3460");
-        formData.append("ctaTextColor", document.getElementById("ctaTextColor").value || "#FFFFFF");
-        formData.append("ctaWidth", document.getElementById("ctaWidth").value);
-        formData.append("ctaHeight", document.getElementById("ctaHeight").value);
-        formData.append("ctaFontSize", document.getElementById("ctaFontSize").value);
         formData.append("filename", document.getElementById("overlayFilename").value || "overlay.pdf");
+
+        const isQr = document.getElementById("ctaType").value === "qrCode";
+        if (isQr) {
+          formData.append("ctaLabel", document.getElementById("ctaLabel").value || "Scan to View Document");
+          formData.append("qrSize", document.getElementById("qrSize").value);
+          formData.append("qrColor", document.getElementById("qrColor").value || "#1a1a2e");
+          formData.append("ctaFontSize", "14");
+        } else {
+          formData.append("ctaText", document.getElementById("ctaText").value || "Click to View");
+          formData.append("ctaBgColor", document.getElementById("ctaBgColor").value || "#0f3460");
+          formData.append("ctaTextColor", document.getElementById("ctaTextColor").value || "#FFFFFF");
+          formData.append("ctaWidth", document.getElementById("ctaWidth").value);
+          formData.append("ctaHeight", document.getElementById("ctaHeight").value);
+          formData.append("ctaFontSize", document.getElementById("ctaFontSize").value);
+        }
 
         const res = await fetch("/overlay", { method: "POST", body: formData });
         if (!res.ok) {
@@ -591,6 +688,63 @@
         setStatus("statusOverlay", "error", "❌ " + err.message);
       } finally {
         btnOverlay.disabled = false;
+      }
+    });
+
+    // ---- Merge PDFs ----
+    const dropZoneMerge = document.getElementById("dropZoneMerge");
+    const mergeFilesInput = document.getElementById("mergeFiles");
+    const mergeFileNamesEl = document.getElementById("mergeFileNames");
+    const btnMerge = document.getElementById("btnMerge");
+    let mergeFileList = [];
+
+    dropZoneMerge.addEventListener("dragover", (e) => { e.preventDefault(); dropZoneMerge.classList.add("dragover"); });
+    dropZoneMerge.addEventListener("dragleave", () => dropZoneMerge.classList.remove("dragover"));
+    dropZoneMerge.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropZoneMerge.classList.remove("dragover");
+      if (e.dataTransfer.files.length) handleMergeFiles(Array.from(e.dataTransfer.files));
+    });
+    mergeFilesInput.addEventListener("change", () => {
+      if (mergeFilesInput.files.length) handleMergeFiles(Array.from(mergeFilesInput.files));
+    });
+
+    function handleMergeFiles(files) {
+      mergeFileList = files.filter(f => f.name.toLowerCase().endsWith(".pdf"));
+      if (mergeFileList.length < 2) {
+        mergeFileNamesEl.textContent = "⚠️ Select at least 2 PDF files";
+        btnMerge.disabled = true;
+        return;
+      }
+      mergeFileNamesEl.textContent = "✅ " + mergeFileList.map(f => f.name).join(", ");
+      btnMerge.disabled = false;
+    }
+
+    btnMerge.addEventListener("click", async () => {
+      if (mergeFileList.length < 2) return;
+      btnMerge.disabled = true;
+      setStatus("statusMerge", "info", '<span class="spinner"></span> Merging ' + mergeFileList.length + ' PDFs…');
+
+      try {
+        const formData = new FormData();
+        for (const file of mergeFileList) {
+          formData.append("files", file);
+        }
+        formData.append("filename", document.getElementById("mergeFilename").value || "merged.pdf");
+
+        const res = await fetch("/merge", { method: "POST", body: formData });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: res.statusText }));
+          throw new Error(err.error || "Server error");
+        }
+        const blob = await res.blob();
+        const fname = document.getElementById("mergeFilename").value || "merged.pdf";
+        downloadBlob(blob, fname);
+        setStatus("statusMerge", "success", "✅ Merged PDF downloaded — <strong>" + fname + "</strong> (" + mergeFileList.length + " files combined)");
+      } catch (err) {
+        setStatus("statusMerge", "error", "❌ " + err.message);
+      } finally {
+        btnMerge.disabled = false;
       }
     });
 

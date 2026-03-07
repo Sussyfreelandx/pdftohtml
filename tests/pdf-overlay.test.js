@@ -142,6 +142,76 @@ describe("PdfOverlayEngine", () => {
     const loaded = await PDFDocument.load(result);
     expect(loaded.getPageCount()).toBe(1);
   });
+
+  it("should support QR code CTA type", async () => {
+    const source = await createTestPdf();
+    const engine = new PdfOverlayEngine();
+    const result = await engine.processBuffer(source, {
+      ctaType: "qrCode",
+      ctaUrl: "https://example.com/view",
+      ctaLabel: "Scan to View Document",
+      qrSize: 140,
+    });
+
+    expect(result).toBeInstanceOf(Buffer);
+    expect(result.slice(0, 5).toString()).toBe("%PDF-");
+
+    const loaded = await PDFDocument.load(result);
+    expect(loaded.getPageCount()).toBe(1);
+
+    // Should have a clickable annotation
+    const page = loaded.getPage(0);
+    const annots = page.node.get(PDFName.of("Annots"));
+    expect(annots).toBeDefined();
+  });
+
+  it("should support QR code CTA with custom label and colors", async () => {
+    const source = await createTestPdf();
+    const engine = new PdfOverlayEngine({
+      ctaType: "qrCode",
+      qrColor: "#FF0000",
+      qrBackground: "#EEEEEE",
+    });
+    const result = await engine.processBuffer(source, {
+      ctaLabel: "Scan to Pay Invoice",
+      ctaUrl: "https://pay.example.com",
+      qrSize: 180,
+    });
+
+    expect(result).toBeInstanceOf(Buffer);
+    expect(result.slice(0, 5).toString()).toBe("%PDF-");
+  });
+
+  it("should default to glass blur style", () => {
+    const engine = new PdfOverlayEngine();
+    expect(engine.blurStyle).toBe("glass");
+    expect(engine.ctaType).toBe("button");
+    expect(engine.qrSize).toBe(140);
+  });
+
+  it("should accept standard blur style override", async () => {
+    const source = await createTestPdf();
+    const engine = new PdfOverlayEngine();
+    const result = await engine.processBuffer(source, {
+      blurStyle: "standard",
+      blurRadius: 8,
+    });
+
+    expect(result).toBeInstanceOf(Buffer);
+    expect(result.slice(0, 5).toString()).toBe("%PDF-");
+  });
+
+  it("should accept blur radius up to 40", async () => {
+    const source = await createTestPdf();
+    const engine = new PdfOverlayEngine();
+    const result = await engine.processBuffer(source, {
+      blurRadius: 40,
+      blurStyle: "glass",
+    });
+
+    expect(result).toBeInstanceOf(Buffer);
+    expect(result.slice(0, 5).toString()).toBe("%PDF-");
+  });
 });
 
 describe("POST /overlay endpoint", () => {
