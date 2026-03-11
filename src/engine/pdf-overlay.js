@@ -138,23 +138,24 @@ class PdfOverlayEngine {
           color: rgb(overlayRgb.r, overlayRgb.g, overlayRgb.b),
           opacity: Math.max(opts.overlayOpacity, 0.85), // strong enough to hide text
         });
-      }
 
-      // ---- 5. Draw faint "redacted" placeholder lines ----
-      const lineCount = Math.floor(height / 40);
-      for (let li = 0; li < lineCount; li++) {
-        const ly = height - 60 - li * 35;
-        const lw = width * (0.3 + (((li * 7 + 13) % 17) / 17) * 0.5);
-        const lx = 40 + (((li * 11 + 3) % 13) / 13) * 20;
-        if (ly > 80) {
-          outPage.drawRectangle({
-            x: lx,
-            y: ly,
-            width: Math.min(lw, width - 80),
-            height: 7,
-            color: rgb(0.88, 0.88, 0.88),
-            opacity: 0.45,
-          });
+        // Draw faint "redacted" placeholder lines (fallback only — when
+        // real blur is unavailable, these simulate hidden content)
+        const lineCount = Math.floor(height / 40);
+        for (let li = 0; li < lineCount; li++) {
+          const ly = height - 60 - li * 35;
+          const lw = width * (0.3 + (((li * 7 + 13) % 17) / 17) * 0.5);
+          const lx = 40 + (((li * 11 + 3) % 13) / 13) * 20;
+          if (ly > 80) {
+            outPage.drawRectangle({
+              x: lx,
+              y: ly,
+              width: Math.min(lw, width - 80),
+              height: 7,
+              color: rgb(0.88, 0.88, 0.88),
+              opacity: 0.45,
+            });
+          }
         }
       }
 
