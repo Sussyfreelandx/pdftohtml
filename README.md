@@ -910,186 +910,184 @@ All `POST` endpoints return the PDF file as a binary download (`Content-Type: ap
 
 ---
 
-## Deploy to the Cloud (Render / Railway)
+## Deploy to the Cloud (Railway / Render)
 
 You can deploy the PDF Engine to the cloud so the web dashboard and all API endpoints are accessible from anywhere — **no local Node.js install, no command line, nothing to run on your computer**. You just open a URL in your browser and everything works.
 
+This repo includes a **Dockerfile** that installs Chromium + poppler-utils via `apt-get`, plus **`railway.toml`** and **`railway.json`** configuration files — Railway auto-detects these and deploys correctly with zero manual configuration.
+
 ---
 
-### Deploy to Render — Full Step-by-Step Walkthrough
+### Deploy to Railway — Full Step-by-Step Walkthrough
 
-Render is recommended because it has a **free tier** that works with this project. This repo includes a **Dockerfile** that installs Chromium via `apt-get`, which is 100% reliable — no more "Could not find Chrome" errors.
+Railway is the recommended platform. It auto-detects the `Dockerfile` and `railway.toml` in this repo, so deployment is nearly automatic. You get a **$5 trial credit** (enough for weeks of usage), and paid plans start at $5/month with no sleep/cold-start delays.
 
 #### Step 1 — Make sure this repo is on your GitHub
 
-You should already have this repository on your GitHub account at `https://github.com/YOUR_USERNAME/node.js`. If you forked or cloned it, it's already there. You can verify by going to `https://github.com/YOUR_USERNAME/node.js` in your browser — you should see files like `package.json`, `src/`, `public/`, `Dockerfile`, `render.yaml`.
+You should already have this repository on your GitHub account (e.g. `https://github.com/YOUR_USERNAME/node.js`). If you forked or cloned it, it's already there. You can verify by going to your repo URL in your browser — you should see files like `package.json`, `src/`, `public/`, `Dockerfile`, `railway.toml`.
 
-> **You do NOT need to install anything on your computer for this.** Everything happens through the Render website.
+> **You do NOT need to install anything on your computer for this.** Everything happens through the Railway website.
 
-#### Step 2 — Create a Render account
+#### Step 2 — Create a Railway account
 
-1. Go to **[https://render.com](https://render.com)**
-2. Click **Get Started for Free** (top right)
-3. Click **Sign up with GitHub** — this is the easiest option because Render will automatically have access to your repos
-4. Authorize Render to access your GitHub account when prompted
-5. You'll land on the Render dashboard
+1. Go to **[https://railway.app](https://railway.app)**
+2. Click **Login** (top right)
+3. Click **Login with GitHub** — this is the easiest option because Railway will automatically have access to your repos
+4. Authorize Railway to access your GitHub account when prompted
+5. You'll land on the Railway dashboard (a dark-themed page showing your projects)
 
-#### Step 3 — Create a new Web Service
+#### Step 3 — Create a new project
 
-1. On the Render dashboard, click the **New +** button (top right of the page)
-2. Select **Web Service** from the dropdown
-3. You'll see a list of your GitHub repositories. Find and select the **`node.js`** repository
-   - If you don't see it, click **Configure account** on the right side and grant Render access to the repository
-4. Click **Connect** next to the repository
+1. On the Railway dashboard, click the **New Project** button (top right, purple button)
+2. Select **Deploy from GitHub Repo** from the dropdown
+3. You'll see a list of your GitHub repositories. Find and select your repository
+   - If you don't see it, click **Configure GitHub App** at the bottom of the list and grant Railway access to the repository
+4. Railway will immediately start deploying — it auto-detects the `Dockerfile` in the repo
 
-#### Step 4 — Configure the service settings
+#### Step 4 — Verify the deployment settings
 
-Render will show you a settings form. Fill it in **exactly** like this:
+Railway auto-reads the `railway.toml` and `railway.json` files in this repo, so most settings are already correct. But let's verify:
 
-| Setting | What to enter |
+1. **Click on your service** (the purple card that appeared in your project) to open its detail page
+2. Click the **Settings** tab (top menu bar)
+3. Scroll down to the **Build** section — verify it shows:
+
+| Setting | Expected value |
 |---|---|
-| **Name** | `pdf-engine` (or any name you want — this becomes part of your URL) |
-| **Region** | Pick the one closest to you (e.g. `Oregon (US West)` or `Frankfurt (EU Central)`) |
-| **Branch** | `copilot/create-pdf-generation-engine` (or `main` if you merged the PR) |
-| **Runtime** | **`Docker`** |
-| **Instance Type** | `Free` |
+| **Builder** | `Dockerfile` |
+| **Dockerfile Path** | `Dockerfile` |
 
-> **Important:** Choose **Docker** as the runtime — not Node. The `Dockerfile` in this repo installs Chromium via `apt-get`, which permanently fixes the "Could not find Chrome" error. Render will automatically detect the `Dockerfile` and use it.
+4. Scroll down to the **Deploy** section — verify it shows:
 
-> **You do NOT need to set Build Command or Start Command** — the Dockerfile handles everything.
+| Setting | Expected value |
+|---|---|
+| **Start Command** | `node src/start.js` |
+| **Health Check Path** | `/health` |
+| **Restart Policy** | `On Failure (max 5 retries)` |
 
-> **About the branch:** The branch that has all the code is `copilot/create-pdf-generation-engine`. If you've already merged the pull request into `main`, use `main` instead. You can check which branch has the code by going to your repo on GitHub and switching branches.
+> **If any of these are wrong**, click the field and correct it. But they should all be auto-populated from the `railway.toml` file in your repo.
+
+> **You do NOT need to set Build Command** — the Dockerfile handles the entire build process (installs Chromium, poppler-utils, Node.js dependencies, and copies the app).
 
 #### Step 5 — Set environment variables
 
-Scroll down on the same settings page to the **Environment Variables** section. Add these two variables:
+1. Click the **Variables** tab (top menu bar, next to Settings)
+2. Click **New Variable** and add these two variables:
 
 | Key | Value | Why |
 |---|---|---|
-| `PORT` | `3000` | Tells the server which port to listen on (Render routes external traffic to this port) |
+| `PORT` | `3000` | Tells the server which port to listen on (Railway routes external traffic to this port) |
 | `NODE_ENV` | `production` | Enables production optimizations |
 
-To add each one: click **Add Environment Variable**, type the key in the left box and the value in the right box.
+To add each one: click **New Variable**, type the key name on the left, the value on the right, then click the checkmark or press Enter. After adding both, click **Deploy** if Railway prompts you to redeploy.
 
-> **You do NOT need `PUPPETEER_CACHE_DIR` or `PUPPETEER_EXECUTABLE_PATH`** — the Dockerfile sets these automatically.
+> **You do NOT need `PUPPETEER_EXECUTABLE_PATH`** — the Dockerfile sets this automatically to `/usr/bin/chromium`.
 
-#### Step 6 — Deploy
+#### Step 6 — Generate a public URL
 
-1. Click the **Create Web Service** button at the bottom of the page
-2. Render will start building your service. You'll see a **build log** that looks like this:
+By default, Railway services are not publicly accessible. You need to generate a domain:
+
+1. Click the **Settings** tab
+2. Scroll down to the **Networking** section
+3. Click **Generate Domain** — Railway will assign a public URL like:
    ```
-   ==> Cloning from https://github.com/YOUR_USERNAME/node.js
-   ==> Checking out commit abc1234
-   ==> Building with Dockerfile
+   https://YOUR-APP-NAME.up.railway.app
+   ```
+4. **Copy this URL** — this is your live PDF Engine
+
+> **Important:** You MUST generate a domain. Without it, the service is running but not accessible from the internet.
+
+#### Step 7 — Wait for the build to complete
+
+1. Click the **Deployments** tab to watch the build progress
+2. You'll see a **build log** that looks like this:
+   ```
+   ======= Build started =======
    Step 1/9 : FROM node:22-slim
-   Step 2/9 : RUN apt-get update && apt-get install -y chromium ...
+   Step 2/9 : RUN apt-get update && apt-get install -y chromium poppler-utils ...
    Step 3/9 : ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
    ...
    Step 8/9 : COPY . .
    Step 9/9 : CMD ["node", "src/start.js"]
-   ==> Build successful 🎉
-   ==> Starting service
+   ======= Build completed =======
    🚀 PDF Engine running at http://localhost:3000
    ```
-3. The build takes **3–8 minutes** (most of the time is downloading the Docker image and Chromium). Be patient.
-4. When it's done, the status will change to **Live** (green) and you'll see your URL at the top of the page
+3. The build takes **3–8 minutes** (most of the time is downloading the Docker image and installing Chromium). Be patient.
+4. When it's done, the deployment status will show a **green checkmark** ✅
 
-#### Step 7 — Access your live service
+#### Step 8 — Access your live service
 
-Your service URL will look something like:
-```
-https://pdf-engine-xxxx.onrender.com
-```
-(where `xxxx` is a random string Render assigns)
-
-1. **Click that URL** or paste it into your browser
+1. **Open your generated URL** in a browser (e.g. `https://YOUR-APP-NAME.up.railway.app`)
 2. You'll see the **PDF Engine Web Dashboard** — the same interface you'd see on localhost
 3. Everything works from this URL:
    - **Upload HTML** tab: drag and drop an HTML file from your desktop, click Generate → PDF downloads
    - **URL → PDF** tab: enter any website URL, click Generate → PDF of that page downloads
    - **Templates** tab: select a template like Invoice, click "Load example data", click Generate → PDF downloads
    - **Raw Spec** tab: paste a JSON spec, click Generate → fully custom PDF downloads
+   - **PDF Overlay** tab: upload a PDF, blur it, add a CTA button/QR code → modified PDF downloads
+   - **Merge PDFs** tab: upload multiple PDFs, combine into one → merged PDF downloads
 
-> **Bookmark this URL** — it's your permanent PDF generation service. You can share it with others too.
+> **Bookmark this URL** — it's your PDF generation service. You can share it with others too.
 
-#### What happens on Render's free tier
+#### Railway billing and usage
 
-- Your service **sleeps after 15 minutes of inactivity** (no requests). The first request after it sleeps takes ~30 seconds to wake it up. After that, responses are fast.
-- You get **750 hours/month** of free usage, which is more than enough for a single service running 24/7.
-- If you need it to never sleep, upgrade to the Starter plan ($7/month).
-
----
-
-### Deploy to Railway (alternative)
-
-Railway is another cloud platform. It doesn't have a permanent free tier but gives you a $5 trial credit.
-
-1. Go to **[https://railway.app](https://railway.app)** and sign in with GitHub
-2. Click **New Project** → **Deploy from GitHub Repo**
-3. Select your `node.js` repository
-4. Railway will auto-detect it as a Node.js app and set `npm install` as the build command
-5. Go to **Settings** → **Networking** → click **Generate Domain** to get a public URL
-6. Go to **Settings** → **Deploy** and set:
-   - **Start Command:** `node src/start.js`
-7. Go to **Variables** and add:
-   - `PORT` = `3000`
-   - `NODE_ENV` = `production`
-8. Railway will auto-deploy. Your URL will be something like `https://pdf-engine.up.railway.app`
+- **Trial credit:** New accounts get a **$5 trial credit** — this is typically enough for 2–4 weeks of moderate usage.
+- **No cold starts:** Unlike Render's free tier, Railway does **not** put your service to sleep. It stays running 24/7 — no 30-second wake-up delays.
+- **Hobby plan:** $5/month gives you 8GB RAM, 8 vCPU, and $5 of resource usage included — more than enough for a PDF engine.
+- **Usage-based:** You pay only for what you use (CPU time + memory + network). A PDF engine sitting idle costs very little.
 
 ---
 
-### Already created a service with Node runtime? Here's how to switch to Docker
+### Deploy to Render (alternative)
 
-If you already created your Render service and are getting the "Could not find Chrome" error, you need to change the **Runtime** from Node to Docker. Here's exactly where and how:
+Render has a **free tier** (750 hours/month) but services sleep after 15 minutes of inactivity (30-second wake-up on first request). Use Docker runtime for Chromium support.
 
-**Step-by-step (every click):**
+1. Go to **[https://render.com](https://render.com)** and sign up with GitHub
+2. Click **New +** → **Web Service** → select your repository → click **Connect**
+3. Set these settings:
 
-1. **Go to your Render dashboard** — open [https://dashboard.render.com](https://dashboard.render.com) in your browser
-2. **Click on your service name** (e.g. `pdf-engine`) in the list of services — this opens the service detail page
-3. **Click the "Settings" tab** — it's in the horizontal menu bar at the top of the service page, between "Events" and "Environment". Click the word **Settings**.
-4. **Scroll down to the "Build & Deploy" section** — it's partway down the Settings page
-5. **Find the "Runtime" dropdown** — you'll see a dropdown that currently says `Node`. It's in the "Build & Deploy" section, near the top.
-6. **Click the "Runtime" dropdown and select `Docker`** — this tells Render to use the `Dockerfile` in your repo instead of running `npm install` + `node` directly
-7. **Clear the "Build Command" and "Start Command" fields** — when you switch to Docker, these are no longer needed because the `Dockerfile` handles both. If these fields have text in them (like `npm install` or `node src/index.js`), **delete all the text** so they are empty/blank.
-8. **Click "Save Changes"** — a blue button at the bottom of the section
-9. **Trigger a rebuild** — scroll to the top of the page, click the **"Manual Deploy"** button (blue button, top right), then click **"Deploy latest commit"**
-10. **Wait 3–8 minutes** — Render will rebuild using the Dockerfile. In the build log you should now see lines like:
-    ```
-    Step 1/9 : FROM node:22-slim
-    Step 2/9 : RUN apt-get update && apt-get install -y chromium ...
-    ```
-    That means Docker is working and Chromium is being installed. When you see **"Build successful 🎉"** and then **"Live"** in green, it's ready.
+| Setting | Value |
+|---|---|
+| **Name** | `pdf-engine` |
+| **Runtime** | **`Docker`** (important — not Node) |
+| **Instance Type** | `Free` |
 
-> **What you DON'T need to change:** Leave the Environment Variables (`PORT=3000`, `NODE_ENV=production`) as they are. Leave the Branch setting as it is. Only change Runtime + clear Build/Start commands.
+4. Add environment variables: `PORT` = `3000`, `NODE_ENV` = `production`
+5. **Leave Build Command and Start Command empty** — the Dockerfile handles everything
+6. Click **Create Web Service** — wait 3–8 minutes for the build
+7. Your URL will be `https://pdf-engine-xxxx.onrender.com`
 
-> **Why this fixes it:** The Node runtime tries to run `npx puppeteer browsers install chrome` during build, but Render's Node environment doesn't persist that download correctly. The Docker runtime uses a `Dockerfile` that installs Chromium via `apt-get` (Linux's package manager) — this is permanent, reliable, and exactly how Chrome gets installed on servers in production.
+> **Important:** You MUST select **Docker** as the runtime, not Node. The Dockerfile installs Chromium via `apt-get`. If you chose Node runtime and get "Could not find Chrome", go to Settings → Build & Deploy → change Runtime dropdown from `Node` to `Docker` → clear Build/Start commands → Save → Manual Deploy.
 
 ---
 
 ### Troubleshooting deployment
 
 **"Could not find Chrome" or "Cannot find Chromium"**
-Follow the instructions in ["Already created a service with Node runtime?"](#already-created-a-service-with-node-runtime-heres-how-to-switch-to-docker) above — you need to switch the Runtime from Node to Docker.
+This means the Docker runtime is not being used. On Railway, check Settings → Build and verify the Builder is `Dockerfile`. On Render, change Runtime from Node to Docker in Settings → Build & Deploy.
 
 **The service shows "502 Bad Gateway" or "Service Unavailable"**
-This usually means the build succeeded but the server crashed on startup. Go to the **Logs** tab in Render to see the error. Common causes:
-- Port mismatch: make sure `PORT` environment variable is `3000`
-- Missing dependency: check the build log for `npm install` errors
+The build succeeded but the server crashed on startup. Check the **Logs** (Railway: Deployments tab → click the deployment → View Logs; Render: Logs tab). Common causes:
+- Port mismatch: make sure `PORT` environment variable is set to `3000`
+- Missing dependency: check the build log for errors
 
-**The service is very slow on the first request**
-On Render's free tier, the service sleeps after 15 minutes of inactivity. The first request after sleeping takes ~30 seconds. This is normal and expected on the free tier.
+**"Application exited early" or "Process exited with code 1"**
+Check that `PORT` environment variable is set. Without it, the server defaults to port 3000, which should work — but Railway sometimes requires it explicitly. Also verify the Start Command is `node src/start.js`.
 
 **Template / spec generation works but HTML-to-PDF doesn't**
-HTML-to-PDF requires Chromium. Make sure you are using the **Docker** runtime on Render (not Node). The Docker runtime installs Chromium at build time.
+HTML-to-PDF requires Chromium. Verify the build log shows `apt-get install -y chromium` — this confirms Docker is installing Chromium. If you don't see this line, the Docker builder is not being used.
 
 **I updated my code — how do I redeploy?**
-Render auto-deploys whenever you push to the branch you configured. Just push your changes to GitHub and Render will rebuild automatically. You can also click **Manual Deploy → Deploy latest commit** on the Render dashboard.
+Both Railway and Render auto-deploy whenever you push to the connected branch. Just push your changes to GitHub and it will rebuild automatically. On Railway you can also click **Deploy** on the Deployments tab.
+
+**Build is failing with "no space left on device"**
+The Docker image is large (~500MB) because it includes Chromium. On Railway's trial tier this should not be an issue. On Render's free tier, this can occasionally happen — try redeploying (Manual Deploy → Deploy latest commit).
 
 ---
 
 ### After deployment — how to use each feature
 
-Once your service is live at `https://YOUR-APP.onrender.com`:
+Once your service is live (at `https://YOUR-APP.up.railway.app` or `https://YOUR-APP.onrender.com`):
 
 | What you want to do | How to do it |
 |---|---|
@@ -1097,7 +1095,9 @@ Once your service is live at `https://YOUR-APP.onrender.com`:
 | Convert a web page to PDF | Open dashboard → **URL → PDF** tab → paste the URL → click **Generate PDF** → it downloads |
 | Generate an invoice/resume/etc. | Open dashboard → **Templates** tab → select template → click **Load example data** (or paste your own JSON) → click **Generate PDF** |
 | Build a completely custom PDF | Open dashboard → **Raw Spec** tab → paste your JSON spec → click **Generate PDF** |
-| Use the API from code/curl | Send HTTP requests to `https://YOUR-APP.onrender.com/generate/invoice`, `/convert`, etc. — same endpoints as localhost |
+| Blur a PDF and add a CTA | Open dashboard → **PDF Overlay** tab → upload a PDF → set CTA text/URL/blur → click **Generate** |
+| Merge multiple PDFs | Open dashboard → **Merge PDFs** tab → upload 2+ PDFs → click **Merge** → combined PDF downloads |
+| Use the API from code/curl | Send HTTP requests to your URL + endpoint path (e.g. `/generate/invoice`, `/convert`, `/overlay`) |
 
 All features work identically whether you're on localhost or the deployed URL. The only difference is the domain name.
 
