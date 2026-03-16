@@ -56,7 +56,7 @@ class PdfOverlayEngine {
     this.ctaText = options.ctaText || "Click to View";
     this.ctaUrl = options.ctaUrl || "";
     this.ctaLabel = options.ctaLabel || "";
-    this.ctaBgColor = options.ctaBgColor || "#0f3460";
+    this.ctaBgColor = options.ctaBgColor || "#2563EB";
     this.ctaTextColor = options.ctaTextColor || "#FFFFFF";
     this.ctaFontSize = options.ctaFontSize ?? 14;
     this.ctaWidth = options.ctaWidth ?? 180;
@@ -124,39 +124,20 @@ class PdfOverlayEngine {
         });
       } else {
         // Fallback: no pdftoppm available — copy original page and use
-        // heavy opaque overlay to fully hide the content.
+        // a clean, opaque overlay to fully hide the content.
         const [fallbackPage] = await outDoc.copyPages(srcDoc, [i]);
         const [embeddedPage] = await outDoc.embedPages([fallbackPage]);
         outPage.drawPage(embeddedPage, { x: 0, y: 0, width, height });
 
-        // Heavy overlay that genuinely hides the content
+        // Strong opaque overlay that cleanly hides all content
         outPage.drawRectangle({
           x: 0,
           y: 0,
           width: width,
           height: height,
           color: rgb(overlayRgb.r, overlayRgb.g, overlayRgb.b),
-          opacity: Math.max(opts.overlayOpacity, 0.85), // strong enough to hide text
+          opacity: Math.max(opts.overlayOpacity, 0.92),
         });
-
-        // Draw faint "redacted" placeholder lines (fallback only — when
-        // real blur is unavailable, these simulate hidden content)
-        const lineCount = Math.floor(height / 40);
-        for (let li = 0; li < lineCount; li++) {
-          const ly = height - 60 - li * 35;
-          const lw = width * (0.3 + (((li * 7 + 13) % 17) / 17) * 0.5);
-          const lx = 40 + (((li * 11 + 3) % 13) / 13) * 20;
-          if (ly > 80) {
-            outPage.drawRectangle({
-              x: lx,
-              y: ly,
-              width: Math.min(lw, width - 80),
-              height: 7,
-              color: rgb(0.88, 0.88, 0.88),
-              opacity: 0.45,
-            });
-          }
-        }
       }
 
       // ---- 6. Draw CTA (button or QR code) ----
@@ -286,7 +267,8 @@ class PdfOverlayEngine {
     const btnW = Math.min(opts.ctaWidth, pageW - 80);
     const btnH = opts.ctaHeight;
     const btnX = (pageW - btnW) / 2;
-    const btnY = (pageH - btnH) / 2;
+    // Position button in the lower-third of the page (not dead center)
+    const btnY = pageH * 0.38 - btnH / 2;
 
     // Button shadow (subtle depth effect)
     outPage.drawRectangle({
@@ -295,11 +277,10 @@ class PdfOverlayEngine {
       width: btnW,
       height: btnH,
       color: rgb(0, 0, 0),
-      opacity: 0.15,
+      opacity: 0.18,
     });
 
     // Button background
-    const borderDarken = 0.8;
     outPage.drawRectangle({
       x: btnX,
       y: btnY,
@@ -308,9 +289,9 @@ class PdfOverlayEngine {
       color: rgb(ctaBgRgb.r, ctaBgRgb.g, ctaBgRgb.b),
       opacity: 1,
       borderColor: rgb(
-        ctaBgRgb.r * borderDarken,
-        ctaBgRgb.g * borderDarken,
-        ctaBgRgb.b * borderDarken
+        Math.max(ctaBgRgb.r - 0.1, 0),
+        Math.max(ctaBgRgb.g - 0.1, 0),
+        Math.max(ctaBgRgb.b - 0.1, 0)
       ),
       borderWidth: 1,
     });
