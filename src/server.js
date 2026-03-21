@@ -237,7 +237,9 @@ function createServer(options = {}) {
    *   ctaTextColor   – Hex colour for button text (default: "#FFFFFF")
    *   ctaFontSize    – Button/label font size in pt (default: 14)
    *   ctaWidth       – Button width in pt (default: 180)
-   *   ctaHeight      – Button height in pt (default: 38)
+   *   ctaHeight      – Button height in pt (default: 44)
+   *   ctaBorderRadius – Corner radius in pt (default: 8, 0 = square)
+   *   ctaStyle       – "rounded" (default), "square", or "outline"
    *   qrSize         – QR code size in pt (default: 140)
    *   qrColor        – QR code foreground colour (default: "#1a1a2e")
    *   qrBackground   – QR code background colour (default: "#FFFFFF")
@@ -266,6 +268,8 @@ function createServer(options = {}) {
       if (req.body.qrSize) overrides.qrSize = parseFloat(req.body.qrSize);
       if (req.body.qrColor) overrides.qrColor = req.body.qrColor;
       if (req.body.qrBackground) overrides.qrBackground = req.body.qrBackground;
+      if (req.body.ctaBorderRadius) overrides.ctaBorderRadius = parseFloat(req.body.ctaBorderRadius);
+      if (req.body.ctaStyle) overrides.ctaStyle = req.body.ctaStyle;
 
       const buffer = await overlayEngine.processBuffer(req.file.buffer, overrides);
       const filename = req.body.filename || "overlay.pdf";

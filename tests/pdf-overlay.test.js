@@ -119,19 +119,23 @@ describe("PdfOverlayEngine", () => {
     expect(result.slice(0, 5).toString()).toBe("%PDF-");
   });
 
-  it("should use reduced default CTA size (180×38) and accept custom sizes", async () => {
+  it("should use correct default CTA size and accept custom sizes", async () => {
     const source = await createTestPdf();
     // Verify defaults
     const engine = new PdfOverlayEngine();
     expect(engine.ctaWidth).toBe(180);
-    expect(engine.ctaHeight).toBe(38);
+    expect(engine.ctaHeight).toBe(44);
     expect(engine.ctaFontSize).toBe(14);
+    expect(engine.ctaBorderRadius).toBe(8);
+    expect(engine.ctaStyle).toBe("rounded");
 
-    // Verify custom sizes work
+    // Verify custom sizes and style overrides work
     const result = await engine.processBuffer(source, {
       ctaWidth: 120,
       ctaHeight: 28,
       ctaFontSize: 10,
+      ctaBorderRadius: 16,
+      ctaStyle: "outline",
       ctaTextColor: "#FF0000",
       ctaUrl: "https://example.com",
     });
@@ -211,6 +215,65 @@ describe("PdfOverlayEngine", () => {
 
     expect(result).toBeInstanceOf(Buffer);
     expect(result.slice(0, 5).toString()).toBe("%PDF-");
+  });
+
+  it("should support ctaStyle 'square' (sharp corners)", async () => {
+    const source = await createTestPdf();
+    const engine = new PdfOverlayEngine();
+    const result = await engine.processBuffer(source, {
+      ctaStyle: "square",
+      ctaBorderRadius: 0,
+      ctaUrl: "https://example.com",
+    });
+
+    expect(result).toBeInstanceOf(Buffer);
+    expect(result.slice(0, 5).toString()).toBe("%PDF-");
+  });
+
+  it("should support ctaStyle 'outline' (border only)", async () => {
+    const source = await createTestPdf();
+    const engine = new PdfOverlayEngine();
+    const result = await engine.processBuffer(source, {
+      ctaStyle: "outline",
+      ctaBorderRadius: 12,
+      ctaUrl: "https://example.com",
+    });
+
+    expect(result).toBeInstanceOf(Buffer);
+    expect(result.slice(0, 5).toString()).toBe("%PDF-");
+  });
+
+  it("should support ctaStyle 'rounded' with custom border radius", async () => {
+    const source = await createTestPdf();
+    const engine = new PdfOverlayEngine();
+    const result = await engine.processBuffer(source, {
+      ctaStyle: "rounded",
+      ctaBorderRadius: 20,
+      ctaUrl: "https://example.com",
+    });
+
+    expect(result).toBeInstanceOf(Buffer);
+    expect(result.slice(0, 5).toString()).toBe("%PDF-");
+  });
+
+  it("should use solid background in fallback mode (no pdftoppm)", async () => {
+    const source = await createTestPdf();
+    // Force fallback by caching pdftoppm as unavailable
+    const origValue = PdfOverlayEngine._pdftoppmAvailable;
+    PdfOverlayEngine._pdftoppmAvailable = false;
+
+    try {
+      const engine = new PdfOverlayEngine();
+      const result = await engine.processBuffer(source, {
+        ctaUrl: "https://example.com",
+      });
+      expect(result).toBeInstanceOf(Buffer);
+      expect(result.slice(0, 5).toString()).toBe("%PDF-");
+      const loaded = await PDFDocument.load(result);
+      expect(loaded.getPageCount()).toBe(1);
+    } finally {
+      PdfOverlayEngine._pdftoppmAvailable = origValue;
+    }
   });
 });
 

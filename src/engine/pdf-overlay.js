@@ -60,8 +60,9 @@ class PdfOverlayEngine {
     this.ctaTextColor = options.ctaTextColor || "#FFFFFF";
     this.ctaFontSize = options.ctaFontSize ?? 14;
     this.ctaWidth = options.ctaWidth ?? 180;
-    this.ctaHeight = options.ctaHeight ?? 38;
+    this.ctaHeight = options.ctaHeight ?? 44;
     this.ctaBorderRadius = options.ctaBorderRadius ?? 8;
+    this.ctaStyle = options.ctaStyle || "rounded";
     this.qrSize = options.qrSize ?? 140;
     this.qrColor = options.qrColor || "#1a1a2e";
     this.qrBackground = options.qrBackground || "#FFFFFF";
@@ -123,20 +124,17 @@ class PdfOverlayEngine {
           opacity: Math.min(opts.overlayOpacity, 0.4), // lighter tint since image is already blurred
         });
       } else {
-        // Fallback: no pdftoppm available — copy original page and use
-        // a clean, opaque overlay to fully hide the content.
-        const [fallbackPage] = await outDoc.copyPages(srcDoc, [i]);
-        const [embeddedPage] = await outDoc.embedPages([fallbackPage]);
-        outPage.drawPage(embeddedPage, { x: 0, y: 0, width, height });
-
-        // Strong opaque overlay that cleanly hides all content
+        // Fallback: no pdftoppm available — draw a solid, clean background.
+        // Do NOT embed original page content (it bleeds through as gray
+        // lines at any opacity below 1.0).  A completely opaque tinted
+        // background gives the cleanest result.
         outPage.drawRectangle({
           x: 0,
           y: 0,
           width: width,
           height: height,
           color: rgb(overlayRgb.r, overlayRgb.g, overlayRgb.b),
-          opacity: Math.max(opts.overlayOpacity, 0.92),
+          opacity: 1,
         });
       }
 
@@ -260,54 +258,113 @@ class PdfOverlayEngine {
   }
 
   /**
-   * Draw a button CTA centered on the page.
+   * Draw a button CTA centered on the page with optional rounded corners.
+   *
+   * Supports three styles via opts.ctaStyle:
+   *   - "rounded" (default) — filled button with rounded corners
+   *   - "square"  — filled button with sharp corners
+   *   - "outline" — transparent button with a coloured border
+   *
    * @private
    */
   _drawButtonCta(outDoc, outPage, font, pageW, pageH, opts, ctaBgRgb, ctaTextRgb) {
     const btnW = Math.min(opts.ctaWidth, pageW - 80);
     const btnH = opts.ctaHeight;
     const btnX = (pageW - btnW) / 2;
-    // Position button in the lower-third of the page (not dead center)
+    // Position button in the lower-third of the page
     const btnY = pageH * 0.38 - btnH / 2;
+    const style = opts.ctaStyle || "rounded";
+    const r = style === "square" ? 0 : Math.min(opts.ctaBorderRadius ?? 8, btnH / 2);
 
-    // Button shadow (subtle depth effect)
-    outPage.drawRectangle({
-      x: btnX + 2,
-      y: btnY - 2,
-      width: btnW,
-      height: btnH,
-      color: rgb(0, 0, 0),
-      opacity: 0.18,
-    });
+    if (r > 0) {
+      // ---- Rounded rectangle via SVG path ----
+      const svgPath = roundedRectSvgPath(btnW, btnH, r);
 
-    // Button background
-    outPage.drawRectangle({
-      x: btnX,
-      y: btnY,
-      width: btnW,
-      height: btnH,
-      color: rgb(ctaBgRgb.r, ctaBgRgb.g, ctaBgRgb.b),
-      opacity: 1,
-      borderColor: rgb(
-        Math.max(ctaBgRgb.r - 0.1, 0),
-        Math.max(ctaBgRgb.g - 0.1, 0),
-        Math.max(ctaBgRgb.b - 0.1, 0)
-      ),
-      borderWidth: 1,
-    });
+      // Shadow (offset +2, -2)
+      outPage.drawSvgPath(svgPath, {
+        x: btnX + 2,
+        y: btnY + btnH - 2,
+        color: rgb(0, 0, 0),
+        opacity: 0.15,
+      });
+
+      // Background (filled or outline)
+      if (style === "outline") {
+        outPage.drawSvgPath(svgPath, {
+          x: btnX,
+          y: btnY + btnH,
+          borderColor: rgb(ctaBgRgb.r, ctaBgRgb.g, ctaBgRgb.b),
+          borderWidth: 2,
+          borderOpacity: 1,
+          color: rgb(1, 1, 1),
+          opacity: 0,
+        });
+      } else {
+        outPage.drawSvgPath(svgPath, {
+          x: btnX,
+          y: btnY + btnH,
+          color: rgb(ctaBgRgb.r, ctaBgRgb.g, ctaBgRgb.b),
+          opacity: 1,
+          borderColor: rgb(
+            Math.max(ctaBgRgb.r - 0.08, 0),
+            Math.max(ctaBgRgb.g - 0.08, 0),
+            Math.max(ctaBgRgb.b - 0.08, 0)
+          ),
+          borderWidth: 0.75,
+        });
+      }
+    } else {
+      // ---- Sharp rectangle (square style) ----
+      outPage.drawRectangle({
+        x: btnX + 2,
+        y: btnY - 2,
+        width: btnW,
+        height: btnH,
+        color: rgb(0, 0, 0),
+        opacity: 0.15,
+      });
+      if (style === "outline") {
+        outPage.drawRectangle({
+          x: btnX,
+          y: btnY,
+          width: btnW,
+          height: btnH,
+          borderColor: rgb(ctaBgRgb.r, ctaBgRgb.g, ctaBgRgb.b),
+          borderWidth: 2,
+          color: rgb(1, 1, 1),
+          opacity: 0,
+        });
+      } else {
+        outPage.drawRectangle({
+          x: btnX,
+          y: btnY,
+          width: btnW,
+          height: btnH,
+          color: rgb(ctaBgRgb.r, ctaBgRgb.g, ctaBgRgb.b),
+          opacity: 1,
+          borderColor: rgb(
+            Math.max(ctaBgRgb.r - 0.08, 0),
+            Math.max(ctaBgRgb.g - 0.08, 0),
+            Math.max(ctaBgRgb.b - 0.08, 0)
+          ),
+          borderWidth: 0.75,
+        });
+      }
+    }
 
     // Button text (centered)
     const fontSize = opts.ctaFontSize;
     const textWidth = font.widthOfTextAtSize(opts.ctaText, fontSize);
     const textX = btnX + (btnW - textWidth) / 2;
     const textY = btnY + (btnH - fontSize) / 2 + 2;
+    const textRgb = style === "outline" ? ctaBgRgb : ctaTextRgb;
 
     outPage.drawText(opts.ctaText, {
       x: textX,
       y: textY,
       size: fontSize,
       font: font,
-      color: rgb(ctaTextRgb.r, ctaTextRgb.g, ctaTextRgb.b),
+      color: rgb(textRgb.r, textRgb.g, textRgb.b),
     });
 
     // Add clickable link annotation over the CTA button
@@ -364,10 +421,10 @@ class PdfOverlayEngine {
         const outPrefix = path.join(tmpDir, `page`);
 
         try {
-          // Render this page as a PNG at 150 DPI (good balance of quality vs file size)
+          // Render this page as a PNG at 200 DPI (good balance of quality vs file size)
           execFileSync("pdftoppm", [
             "-png",
-            "-r", "150",
+            "-r", "200",
             "-f", String(pageNum),
             "-l", String(pageNum),
             "-singlefile",
@@ -444,6 +501,35 @@ class PdfOverlayEngine {
 
 // Static cache for pdftoppm availability check
 PdfOverlayEngine._pdftoppmAvailable = undefined;
+
+/**
+ * Build an SVG path string for a rounded rectangle.
+ *
+ * pdf-lib's drawSvgPath uses standard SVG coords (Y-down) and then
+ * flips internally, so the path is drawn as a normal top-left-origin
+ * rounded rect.  The caller sets { x, y } to position the top-left
+ * corner in PDF coordinate space (x = left, y = top of the shape).
+ *
+ * @param {number} w – width
+ * @param {number} h – height
+ * @param {number} r – corner radius (clamped to half the smaller dimension)
+ * @returns {string}
+ */
+function roundedRectSvgPath(w, h, r) {
+  const cr = Math.min(r, w / 2, h / 2);
+  return [
+    `M ${cr} 0`,
+    `H ${w - cr}`,
+    `Q ${w} 0 ${w} ${cr}`,
+    `V ${h - cr}`,
+    `Q ${w} ${h} ${w - cr} ${h}`,
+    `H ${cr}`,
+    `Q 0 ${h} 0 ${h - cr}`,
+    `V ${cr}`,
+    `Q 0 0 ${cr} 0`,
+    `Z`,
+  ].join(" ");
+}
 
 /**
  * Convert a hex colour string to { r, g, b } in 0-1 range.

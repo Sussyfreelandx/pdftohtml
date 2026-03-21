@@ -301,6 +301,10 @@
             <label for="qrColor">QR Code Color</label>
             <input type="color" id="qrColor" value="#1a1a2e" style="height: 38px; padding: 2px;">
           </div>
+          <div>
+            <label for="qrBackground">QR Background</label>
+            <input type="color" id="qrBackground" value="#FFFFFF" style="height: 38px; padding: 2px;">
+          </div>
         </div>
       </div>
 
@@ -322,6 +326,10 @@
             <option value="0.85">85% — Nearly opaque</option>
           </select>
         </div>
+        <div>
+          <label for="overlayColor">Overlay Tint</label>
+          <input type="color" id="overlayColor" value="#FFFFFF" style="height: 38px; padding: 2px;">
+        </div>
       </div>
 
       <div style="margin-top: 12px;">
@@ -338,12 +346,29 @@
       <div id="buttonStyling">
         <div class="options-row" style="margin-top: 12px;">
           <div>
+            <label for="ctaStyle">Button Style</label>
+            <select id="ctaStyle">
+              <option value="rounded" selected>🔵 Rounded</option>
+              <option value="square">⬜ Square</option>
+              <option value="outline">⭕ Outline</option>
+            </select>
+          </div>
+          <div>
             <label for="ctaBgColor">Button Color</label>
-            <input type="color" id="ctaBgColor" value="#0f3460" style="height: 38px; padding: 2px;">
+            <input type="color" id="ctaBgColor" value="#2563EB" style="height: 38px; padding: 2px;">
           </div>
           <div>
             <label for="ctaTextColor">Text Color</label>
             <input type="color" id="ctaTextColor" value="#FFFFFF" style="height: 38px; padding: 2px;">
+          </div>
+        </div>
+
+        <div class="options-row" style="margin-top: 8px;">
+          <div>
+            <label for="ctaBorderRadius">Corner Radius: <strong id="ctaBorderRadiusValue">8</strong></label>
+            <input type="range" id="ctaBorderRadius" min="0" max="24" value="8" step="1"
+                   style="width: 100%; height: 8px; cursor: pointer;"
+                   oninput="document.getElementById('ctaBorderRadiusValue').textContent = this.value">
           </div>
         </div>
 
@@ -361,9 +386,9 @@
             <label for="ctaHeight">Button Height (pt)</label>
             <select id="ctaHeight">
               <option value="28">Small (28)</option>
-              <option value="38" selected>Medium (38)</option>
-              <option value="48">Large (48)</option>
-              <option value="56">Extra Large (56)</option>
+              <option value="44" selected>Medium (44)</option>
+              <option value="52">Large (52)</option>
+              <option value="60">Extra Large (60)</option>
             </select>
           </div>
           <div>
@@ -658,6 +683,7 @@
         formData.append("blurRadius", document.getElementById("blurRadius").value);
         formData.append("blurStyle", document.getElementById("blurStyle").value);
         formData.append("overlayOpacity", document.getElementById("overlayOpacity").value);
+        formData.append("overlayColor", document.getElementById("overlayColor").value || "#FFFFFF");
         formData.append("filename", document.getElementById("overlayFilename").value || "overlay.pdf");
 
         const isQr = document.getElementById("ctaType").value === "qrCode";
@@ -665,14 +691,17 @@
           formData.append("ctaLabel", document.getElementById("ctaLabel").value || "Scan to View Document");
           formData.append("qrSize", document.getElementById("qrSize").value);
           formData.append("qrColor", document.getElementById("qrColor").value || "#1a1a2e");
+          formData.append("qrBackground", document.getElementById("qrBackground").value || "#FFFFFF");
           formData.append("ctaFontSize", "14");
         } else {
           formData.append("ctaText", document.getElementById("ctaText").value || "Click to View");
-          formData.append("ctaBgColor", document.getElementById("ctaBgColor").value || "#0f3460");
+          formData.append("ctaBgColor", document.getElementById("ctaBgColor").value || "#2563EB");
           formData.append("ctaTextColor", document.getElementById("ctaTextColor").value || "#FFFFFF");
           formData.append("ctaWidth", document.getElementById("ctaWidth").value);
           formData.append("ctaHeight", document.getElementById("ctaHeight").value);
           formData.append("ctaFontSize", document.getElementById("ctaFontSize").value);
+          formData.append("ctaBorderRadius", document.getElementById("ctaBorderRadius").value);
+          formData.append("ctaStyle", document.getElementById("ctaStyle").value);
         }
 
         const res = await fetch("/overlay", { method: "POST", body: formData });
