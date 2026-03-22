@@ -318,12 +318,12 @@
           </select>
         </div>
         <div>
-          <label for="overlayOpacity">Overlay Opacity</label>
+          <label for="overlayOpacity">Overlay Tint Strength</label>
           <select id="overlayOpacity">
-            <option value="0.35">35% — Light frost</option>
-            <option value="0.55" selected>55% — Default</option>
-            <option value="0.70">70% — Heavy</option>
-            <option value="0.85">85% — Nearly opaque</option>
+            <option value="0.10">10% — Very light</option>
+            <option value="0.15" selected>15% — Default</option>
+            <option value="0.25">25% — Moderate tint</option>
+            <option value="0.40">40% — Heavy tint</option>
           </select>
         </div>
         <div>
@@ -333,12 +333,12 @@
       </div>
 
       <div style="margin-top: 12px;">
-        <label for="blurRadius">Blur Strength: <strong id="blurRadiusValue">12</strong></label>
-        <input type="range" id="blurRadius" min="1" max="40" value="12" step="1"
+        <label for="blurRadius">Blur Strength: <strong id="blurRadiusValue">5</strong></label>
+        <input type="range" id="blurRadius" min="1" max="40" value="5" step="1"
                style="width: 100%; height: 8px; cursor: pointer;"
                oninput="document.getElementById('blurRadiusValue').textContent = this.value">
         <div style="display: flex; justify-content: space-between; font-size: 11px; color: #888; margin-top: 2px;">
-          <span>Light (1)</span><span>Medium (12)</span><span>Heavy (25)</span><span>Max (40)</span>
+          <span>Light (1)</span><span>Default (5)</span><span>Heavy (15)</span><span>Max (40)</span>
         </div>
       </div>
 

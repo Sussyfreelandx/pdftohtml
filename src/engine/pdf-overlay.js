@@ -27,12 +27,16 @@ const os = require("os");
  *   a strong opaque overlay that fully hides the content.
  */
 class PdfOverlayEngine {
+  // Minimum overlay opacity used in fallback mode (no pdftoppm) to compensate
+  // for the absence of actual pixel-level blur.
+  static FALLBACK_MIN_OPACITY = 0.55;
+
   /**
    * @param {object}  [options]
-   * @param {number}  [options.blurRadius=12]             – Blur sigma (1-40, higher = more blurred)
+   * @param {number}  [options.blurRadius=5]              – Blur sigma (1-40). Low=text visible, high=text hidden
    * @param {string}  [options.blurStyle="glass"]         – "glass" (frosted-glass) or "standard" (plain Gaussian)
    * @param {string}  [options.overlayColor="#FFFFFF"]     – Hex overlay tint colour
-   * @param {number}  [options.overlayOpacity=0.55]       – 0-1 overlay transparency
+   * @param {number}  [options.overlayOpacity=0.15]       – 0-1 overlay tint (light — blur handles obscuring)
    * @param {string}  [options.ctaType="button"]          – "button" or "qrCode"
    * @param {string}  [options.ctaText="Click to View"]   – Button label (or QR label)
    * @param {string}  [options.ctaUrl]                    – Destination URL for the CTA
@@ -48,10 +52,10 @@ class PdfOverlayEngine {
    * @param {string}  [options.qrBackground="#FFFFFF"]    – QR code background colour
    */
   constructor(options = {}) {
-    this.blurRadius = options.blurRadius ?? 12;
+    this.blurRadius = options.blurRadius ?? 5;
     this.blurStyle = options.blurStyle || "glass";
     this.overlayColor = options.overlayColor || "#FFFFFF";
-    this.overlayOpacity = options.overlayOpacity ?? 0.55;
+    this.overlayOpacity = options.overlayOpacity ?? 0.15;
     this.ctaType = options.ctaType || "button";
     this.ctaText = options.ctaText || "Click to View";
     this.ctaUrl = options.ctaUrl || "";
@@ -121,20 +125,31 @@ class PdfOverlayEngine {
           width: width,
           height: height,
           color: rgb(overlayRgb.r, overlayRgb.g, overlayRgb.b),
-          opacity: Math.min(opts.overlayOpacity, 0.4), // lighter tint since image is already blurred
+          opacity: opts.overlayOpacity,
         });
       } else {
-        // Fallback: no pdftoppm available — draw a solid, clean background.
-        // Do NOT embed original page content (it bleeds through as gray
-        // lines at any opacity below 1.0).  A completely opaque tinted
-        // background gives the cleanest result.
+        // Fallback: no pdftoppm available — copy the original page content
+        // into the output, then draw a semi-transparent overlay on top.
+        // This preserves the underlying text/shapes in a "frosted" look.
+        const [copiedPage] = await outDoc.copyPages(srcDoc, [i]);
+        const copiedContent = copiedPage.node;
+
+        // Transfer content stream and resources from the copied page
+        const resources = copiedContent.get(PDFName.of("Resources"));
+        const contents = copiedContent.get(PDFName.of("Contents"));
+        if (resources) outPage.node.set(PDFName.of("Resources"), resources);
+        if (contents) outPage.node.set(PDFName.of("Contents"), contents);
+
+        // Apply semi-transparent overlay tint to obscure the content
+        // Use a higher opacity than the blur path since there's no actual blur
+        const fallbackOpacity = Math.max(opts.overlayOpacity, PdfOverlayEngine.FALLBACK_MIN_OPACITY);
         outPage.drawRectangle({
           x: 0,
           y: 0,
           width: width,
           height: height,
           color: rgb(overlayRgb.r, overlayRgb.g, overlayRgb.b),
-          opacity: 1,
+          opacity: fallbackOpacity,
         });
       }
 
@@ -442,11 +457,10 @@ class PdfOverlayEngine {
             const blurSigma = Math.max(opts.blurRadius, 1);
             let blurredPng;
             if (opts.blurStyle === "glass") {
-              // Frosted glass: blur + brightness boost + slight desaturation
+              // Frosted glass: blur + subtle brightness lift + mild desaturation
               blurredPng = await sharp(rawPng)
                 .blur(blurSigma)
-                .modulate({ brightness: 1.15, saturation: 0.7 })
-                .gamma(1.1)
+                .modulate({ brightness: 1.05, saturation: 0.85 })
                 .png()
                 .toBuffer();
             } else {
