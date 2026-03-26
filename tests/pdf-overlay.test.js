@@ -411,4 +411,84 @@ describe("POST /overlay endpoint", () => {
       req.end();
     });
   });
+
+  // ---- Page Range Selection Tests ----
+
+  describe("parsePageRange", () => {
+    it('should return all pages for "all"', () => {
+      const set = PdfOverlayEngine.parsePageRange("all", 5);
+      expect(set.size).toBe(5);
+      expect([...set]).toEqual([0, 1, 2, 3, 4]);
+    });
+
+    it("should return all pages for undefined/null/empty", () => {
+      expect(PdfOverlayEngine.parsePageRange(undefined, 3).size).toBe(3);
+      expect(PdfOverlayEngine.parsePageRange(null, 3).size).toBe(3);
+      expect(PdfOverlayEngine.parsePageRange("", 3).size).toBe(3);
+    });
+
+    it('should return only first page for "first"', () => {
+      const set = PdfOverlayEngine.parsePageRange("first", 5);
+      expect(set.size).toBe(1);
+      expect(set.has(0)).toBe(true);
+    });
+
+    it('should return only last page for "last"', () => {
+      const set = PdfOverlayEngine.parsePageRange("last", 5);
+      expect(set.size).toBe(1);
+      expect(set.has(4)).toBe(true);
+    });
+
+    it("should parse a range like '1-3'", () => {
+      const set = PdfOverlayEngine.parsePageRange("1-3", 5);
+      expect(set.size).toBe(3);
+      expect(set.has(0)).toBe(true); // page 1 → index 0
+      expect(set.has(1)).toBe(true); // page 2 → index 1
+      expect(set.has(2)).toBe(true); // page 3 → index 2
+      expect(set.has(3)).toBe(false);
+    });
+
+    it("should parse specific pages like '1,3,5'", () => {
+      const set = PdfOverlayEngine.parsePageRange("1,3,5", 5);
+      expect(set.size).toBe(3);
+      expect(set.has(0)).toBe(true);  // page 1
+      expect(set.has(2)).toBe(true);  // page 3
+      expect(set.has(4)).toBe(true);  // page 5
+      expect(set.has(1)).toBe(false); // page 2 not selected
+    });
+
+    it("should parse mixed ranges '1-2,5'", () => {
+      const set = PdfOverlayEngine.parsePageRange("1-2,5", 5);
+      expect(set.size).toBe(3);
+      expect(set.has(0)).toBe(true);
+      expect(set.has(1)).toBe(true);
+      expect(set.has(4)).toBe(true);
+    });
+
+    it("should clamp out-of-range pages", () => {
+      const set = PdfOverlayEngine.parsePageRange("1-100", 3);
+      expect(set.size).toBe(3);
+    });
+
+    it("should fall back to all pages for invalid input", () => {
+      const set = PdfOverlayEngine.parsePageRange("abc", 3);
+      expect(set.size).toBe(3);
+    });
+  });
+
+  it("should only blur selected pages and copy others as-is", async () => {
+    const source = await createTestPdf(3);
+    const engine = new PdfOverlayEngine();
+
+    const result = await engine.processBuffer(source, {
+      ctaText: "View Full Document",
+      ctaUrl: "https://example.com",
+      blurPages: "1", // Only blur page 1
+    });
+
+    expect(result).toBeInstanceOf(Buffer);
+    expect(result.length).toBeGreaterThan(0);
+    const outDoc = await PDFDocument.load(result);
+    expect(outDoc.getPageCount()).toBe(3); // All 3 pages present
+  });
 });

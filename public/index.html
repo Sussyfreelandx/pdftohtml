@@ -418,6 +418,27 @@
         </div>
       </div>
 
+      <!-- Pages to Blur -->
+      <div class="options-row" style="margin-top: 12px;">
+        <div>
+          <label for="blurPagesPreset">Pages to Blur</label>
+          <select id="blurPagesPreset" onchange="handleBlurPagesPreset()">
+            <option value="all" selected>All Pages</option>
+            <option value="first">First Page Only</option>
+            <option value="last">Last Page Only</option>
+            <option value="custom">Custom Range…</option>
+          </select>
+        </div>
+        <div id="blurPagesCustomWrapper" style="display: none;">
+          <label for="blurPages">Page Range</label>
+          <input type="text" id="blurPages" placeholder="e.g. 1-3 or 1,3,5"
+                 style="font-size: 14px;">
+          <div style="font-size: 11px; color: #888; margin-top: 2px;">
+            Use <strong>1-3</strong> for a range, <strong>1,3,5</strong> for specific pages, or mix: <strong>1-3,7</strong>
+          </div>
+        </div>
+      </div>
+
       <!-- Button color/sizing (shown only for button CTA type) -->
       <div id="buttonStyling">
         <div class="options-row" style="margin-top: 12px;">
@@ -627,6 +648,13 @@
       el.className = "status";
       el.innerHTML = "";
     }
+
+    // ---- Pages to Blur preset handler ----
+    function handleBlurPagesPreset() {
+      const preset = document.getElementById("blurPagesPreset").value;
+      const customWrapper = document.getElementById("blurPagesCustomWrapper");
+      customWrapper.style.display = preset === "custom" ? "block" : "none";
+    }
     function downloadBlob(blob, filename) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -819,6 +847,15 @@
       formData.append("overlayOpacity", document.getElementById("overlayOpacity").value);
       formData.append("overlayColor", document.getElementById("overlayColor").value || "#FFFFFF");
       formData.append("filename", document.getElementById("overlayFilename").value || "overlay.pdf");
+
+      // Page range — determine from preset or custom input
+      const preset = document.getElementById("blurPagesPreset").value;
+      if (preset === "custom") {
+        const customRange = document.getElementById("blurPages").value.trim();
+        formData.append("blurPages", customRange || "all");
+      } else {
+        formData.append("blurPages", preset);
+      }
 
       if (customCtaX !== undefined) formData.append("ctaX", String(customCtaX));
       if (customCtaY !== undefined) formData.append("ctaY", String(customCtaY));

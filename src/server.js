@@ -245,6 +245,7 @@ function createServer(options = {}) {
    *   qrBackground   – QR code background colour (default: "#FFFFFF")
    *   ctaX           – Custom CTA x position (0-1 fraction of page width). Omit to auto-center.
    *   ctaY           – Custom CTA y position (0-1 fraction of page height). Omit for default.
+   *   blurPages      – Which pages to blur: "all" (default), "1-3", "1,3,5", "first", "last". Non-blurred pages pass through as-is.
    *   preview        – "true" to return inline PDF (for iframe preview) instead of attachment
    *   filename       – Output filename (default: "overlay.pdf")
    */
@@ -275,6 +276,7 @@ function createServer(options = {}) {
       if (req.body.ctaStyle) overrides.ctaStyle = req.body.ctaStyle;
       if (req.body.ctaX) overrides.ctaX = parseFloat(req.body.ctaX);
       if (req.body.ctaY) overrides.ctaY = parseFloat(req.body.ctaY);
+      if (req.body.blurPages) overrides.blurPages = req.body.blurPages;
 
       const buffer = await overlayEngine.processBuffer(req.file.buffer, overrides);
 

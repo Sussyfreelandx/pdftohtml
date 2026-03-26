@@ -52,6 +52,7 @@ class PdfOverlayEngine {
    * @param {string}  [options.qrBackground="#FFFFFF"]    – QR code background colour
    * @param {number}  [options.ctaX]                      – Custom CTA x position (0-1 fraction of page width). Omit to auto-center.
    * @param {number}  [options.ctaY]                      – Custom CTA y position (0-1 fraction of page height, 0=bottom, 1=top). Omit to use default lower-third.
+   * @param {string}  [options.blurPages="all"]           – Which pages to blur: "all", "1-3", "1,3,5", "first", "last". Non-blurred pages are copied as-is.
    */
   constructor(options = {}) {
     this.blurRadius = options.blurRadius ?? 5;
@@ -74,6 +75,7 @@ class PdfOverlayEngine {
     this.qrBackground = options.qrBackground || "#FFFFFF";
     this.ctaX = options.ctaX;  // undefined = auto-center
     this.ctaY = options.ctaY;  // undefined = default position
+    this.blurPages = options.blurPages || "all";
   }
 
   /**
@@ -90,8 +92,11 @@ class PdfOverlayEngine {
     const srcDoc = await PDFDocument.load(pdfBuffer, { ignoreEncryption: true });
     const pageCount = srcDoc.getPageCount();
 
-    // ---- 2. Render all pages as images ----
-    const pageImages = await this._renderPagesAsImages(pdfBuffer, srcDoc, opts);
+    // ---- 1b. Determine which pages to blur ----
+    const blurSet = PdfOverlayEngine.parsePageRange(opts.blurPages, pageCount);
+
+    // ---- 2. Render only the pages that need blurring as images ----
+    const pageImages = await this._renderPagesAsImages(pdfBuffer, srcDoc, opts, blurSet);
 
     // ---- 3. Create output PDF ----
     const outDoc = await PDFDocument.create();
@@ -105,11 +110,20 @@ class PdfOverlayEngine {
     const font = await outDoc.embedFont(StandardFonts.HelveticaBold);
 
     for (let i = 0; i < pageCount; i++) {
+      const shouldBlur = blurSet.has(i);
+
       // Get source page dimensions
       const srcPage = srcDoc.getPage(i);
       const { width, height } = srcPage.getSize();
 
-      // ---- 4. Build output page ----
+      if (!shouldBlur) {
+        // ---- Copy page as-is (no blur, no overlay, no CTA) ----
+        const [copiedPage] = await outDoc.copyPages(srcDoc, [i]);
+        outDoc.addPage(copiedPage);
+        continue;
+      }
+
+      // ---- 4. Build blurred output page ----
       const outPage = outDoc.addPage([width, height]);
 
       if (pageImages[i]) {
@@ -444,9 +458,11 @@ class PdfOverlayEngine {
    * @param {Buffer} pdfBuffer   – Full PDF file as a Buffer
    * @param {object} srcDoc      – PDFDocument from pdf-lib (for page count / size)
    * @param {object} opts        – Merged options
-   * @returns {Promise<(Buffer|null)[]>} – Array of blurred PNG buffers (null = fallback)
+   * @param {Set<number>} blurSet – Set of 0-based page indices to blur (skip others)
+   * @returns {Promise<(Buffer|null)[]>} – Array indexed by page number. Contains blurred PNG buffer
+   *          for pages in blurSet, or null for pages that should be skipped/use fallback.
    */
-  async _renderPagesAsImages(pdfBuffer, srcDoc, opts) {
+  async _renderPagesAsImages(pdfBuffer, srcDoc, opts, blurSet) {
     const pageCount = srcDoc.getPageCount();
 
     // Check if pdftoppm is available
@@ -463,6 +479,12 @@ class PdfOverlayEngine {
 
     try {
       for (let i = 0; i < pageCount; i++) {
+        // Skip rendering pages that don't need blurring
+        if (!blurSet.has(i)) {
+          results.push(null);
+          continue;
+        }
+
         const pageNum = i + 1; // pdftoppm uses 1-based page numbers
         const outPrefix = path.join(tmpDir, `page`);
 
@@ -541,6 +563,66 @@ class PdfOverlayEngine {
       PdfOverlayEngine._pdftoppmAvailable = false;
     }
     return PdfOverlayEngine._pdftoppmAvailable;
+  }
+
+  /**
+   * Parse a page range string into a Set of 0-based page indices.
+   *
+   * Supported formats:
+   *   - "all"      → all pages (default)
+   *   - "first"    → only the first page
+   *   - "last"     → only the last page
+   *   - "1-3"      → pages 1, 2, 3 (1-based → 0-based internally)
+   *   - "1,3,5"    → specific pages 1, 3, 5
+   *   - "1-3,7,9"  → mixed ranges and individual pages
+   *
+   * @param {string} rangeStr  – The page range expression
+   * @param {number} pageCount – Total number of pages in the PDF
+   * @returns {Set<number>}    – Set of 0-based page indices to blur
+   */
+  static parsePageRange(rangeStr, pageCount) {
+    if (!rangeStr || rangeStr === "all") {
+      // All pages
+      const set = new Set();
+      for (let i = 0; i < pageCount; i++) set.add(i);
+      return set;
+    }
+
+    if (rangeStr === "first") {
+      return new Set([0]);
+    }
+
+    if (rangeStr === "last") {
+      return new Set([pageCount - 1]);
+    }
+
+    const set = new Set();
+    const parts = rangeStr.split(",").map(s => s.trim()).filter(Boolean);
+
+    for (const part of parts) {
+      if (part.includes("-")) {
+        // Range: "2-5" means pages 2,3,4,5 (1-based)
+        const [startStr, endStr] = part.split("-");
+        const start = Math.max(1, parseInt(startStr, 10) || 1);
+        const end = Math.min(pageCount, parseInt(endStr, 10) || pageCount);
+        for (let p = start; p <= end; p++) {
+          set.add(p - 1); // convert to 0-based
+        }
+      } else {
+        // Single page: "3" means page 3 (1-based)
+        const p = parseInt(part, 10);
+        if (p >= 1 && p <= pageCount) {
+          set.add(p - 1); // convert to 0-based
+        }
+      }
+    }
+
+    // If nothing valid was parsed, fall back to all pages
+    if (set.size === 0) {
+      for (let i = 0; i < pageCount; i++) set.add(i);
+    }
+
+    return set;
   }
 }
 
