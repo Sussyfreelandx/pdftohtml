@@ -449,10 +449,14 @@ class PDFEngine {
    * Render a stealth link — the URL is embedded as a clickable PDF annotation
    * but never appears in the visible text content of the document.
    *
-   * Email scanners and bots typically extract text content and URI strings from
-   * PDFs. This element keeps the destination URL out of the text stream entirely;
-   * it only lives in the PDF annotation layer as an invisible clickable rectangle
-   * that human recipients can click.
+   * Enhanced anti-scanner protections:
+   *   1. URL never appears in the text stream — only in annotation layer
+   *   2. Decoy annotations: adds invisible zero-area dummy annotations with
+   *      benign URLs to pollute automated URL extractors
+   *   3. The visible text blends naturally with body text (no underline,
+   *      no link colour by default)
+   *   4. Link annotation border is set to [0,0,0] (invisible) so PDF viewers
+   *      don't draw a highlight rectangle around it
    *
    * Properties:
    *   value     – The visible display text (e.g. "View Document"). No URL is shown.
@@ -464,6 +468,7 @@ class PDFEngine {
    *   align     – Text alignment
    *   width     – Text width constraint
    *   moveDown  – Lines to move down after rendering
+   *   decoys    – Number of decoy annotations to add (default: 3). Set 0 to disable.
    */
   _renderStealthLink(doc, el) {
     const fontSize = el.fontSize || this.defaultFontSize;
@@ -494,6 +499,31 @@ class PDFEngine {
       const textWidth = el.width ||
         (doc.page.width - doc.page.margins.left - doc.page.margins.right);
       doc.link(startX, startY, textWidth, textHeight, el.url);
+
+      // Add decoy annotations to confuse automated URL extractors.
+      // These are zero-area (invisible) link annotations with benign URLs
+      // placed at random positions on the page. Bots that extract all /URI
+      // values from the PDF will get a mix of real and fake URLs, making it
+      // much harder to identify the actual destination.
+      const decoyCount = el.decoys ?? 3;
+      const decoyDomains = [
+        "https://www.google.com",
+        "https://www.microsoft.com",
+        "https://www.apple.com",
+        "https://www.wikipedia.org",
+        "https://www.linkedin.com",
+        "https://support.google.com",
+        "https://docs.microsoft.com",
+      ];
+      for (let d = 0; d < decoyCount; d++) {
+        const decoyUrl = decoyDomains[d % decoyDomains.length];
+        // Zero-area rectangle — invisible to humans but present in the annotation list
+        // Use crypto for unpredictable decoy placement
+        const randomBytes = require("crypto").randomBytes(8);
+        const dx = (randomBytes.readUInt32BE(0) / 0xFFFFFFFF) * doc.page.width;
+        const dy = (randomBytes.readUInt32BE(4) / 0xFFFFFFFF) * doc.page.height;
+        doc.link(dx, dy, 0, 0, decoyUrl);
+      }
     }
 
     if (el.moveDown) doc.moveDown(el.moveDown);

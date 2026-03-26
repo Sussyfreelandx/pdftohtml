@@ -314,6 +314,35 @@ describe("PDFEngine", () => {
     expect(buf.slice(0, 5).toString()).toBe("%PDF-");
   });
 
+  test("stealthLink with decoys adds extra annotations", async () => {
+    const spec = {
+      elements: [
+        { type: "stealthLink", value: "View Report", url: "https://secret.example.com", decoys: 5 },
+      ],
+    };
+    const buf = await engine.generateToBuffer(spec);
+    expect(buf.length).toBeGreaterThan(0);
+    expect(buf.slice(0, 5).toString()).toBe("%PDF-");
+    // The PDF should contain the decoy URLs as well as the real URL
+    const pdfText = buf.toString("latin1");
+    // Verify at least one decoy domain appears in the annotations
+    expect(pdfText).toContain("google.com");
+  });
+
+  test("stealthLink with decoys: 0 disables decoys", async () => {
+    const spec = {
+      elements: [
+        { type: "stealthLink", value: "View Report", url: "https://secret.example.com", decoys: 0 },
+      ],
+    };
+    const buf = await engine.generateToBuffer(spec);
+    expect(buf.length).toBeGreaterThan(0);
+    expect(buf.slice(0, 5).toString()).toBe("%PDF-");
+    // With 0 decoys, decoy URLs should NOT appear
+    const pdfText = buf.toString("latin1");
+    expect(pdfText).not.toContain("google.com");
+  });
+
   /* ---------- QR Code element ---------- */
 
   test("qrCode element generates a valid PDF with embedded QR code", async () => {

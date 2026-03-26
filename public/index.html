@@ -156,6 +156,82 @@
       .card { padding: 20px 18px; }
       .options-row { flex-direction: column; }
     }
+
+    /* ---- PDF Preview Panel ---- */
+    .preview-panel {
+      display: none;
+      margin-top: 20px;
+      border: 2px solid #d1d5db;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #f5f5f5;
+    }
+    .preview-panel.active { display: block; }
+    .preview-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: #1a1a2e;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .preview-header .preview-actions { display: flex; gap: 8px; }
+    .preview-header .preview-btn {
+      padding: 6px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .preview-btn-download { background: #2563EB; color: #fff; }
+    .preview-btn-download:hover { background: #1d4ed8; }
+    .preview-btn-close { background: rgba(255,255,255,0.15); color: #fff; }
+    .preview-btn-close:hover { background: rgba(255,255,255,0.25); }
+    .preview-frame-wrapper {
+      position: relative;
+      width: 100%;
+      height: 600px;
+      background: #e0e0e0;
+    }
+    .preview-frame-wrapper iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+    /* Draggable CTA overlay marker */
+    .cta-drag-marker {
+      display: none;
+      position: absolute;
+      background: rgba(37, 99, 235, 0.85);
+      color: #fff;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: grab;
+      user-select: none;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+      z-index: 10;
+      white-space: nowrap;
+      transition: box-shadow 0.15s;
+    }
+    .cta-drag-marker:active { cursor: grabbing; box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
+    .cta-drag-marker.active { display: block; }
+    .drag-hint {
+      display: none;
+      margin-top: 8px;
+      padding: 10px 14px;
+      background: #fef3c7;
+      color: #92400e;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .drag-hint.active { display: block; }
   </style>
 </head>
 <body>
@@ -411,9 +487,27 @@
       </div>
 
       <button class="btn btn-primary" id="btnOverlay" disabled>
-        Apply Overlay &amp; Download PDF
+        Preview &amp; Apply Overlay
       </button>
       <div class="status" id="statusOverlay"></div>
+
+      <!-- Preview panel with draggable CTA -->
+      <div class="preview-panel" id="previewPanel">
+        <div class="preview-header">
+          <span>📄 PDF Preview</span>
+          <div class="preview-actions">
+            <button class="preview-btn preview-btn-download" id="btnPreviewDownload">⬇ Download PDF</button>
+            <button class="preview-btn preview-btn-close" id="btnPreviewClose">✕ Close</button>
+          </div>
+        </div>
+        <div class="drag-hint active" id="dragHint">
+          <strong>Tip:</strong> Drag the CTA button marker on the preview to reposition it, then click "Download PDF" to generate with your custom position.
+        </div>
+        <div class="preview-frame-wrapper" id="previewWrapper">
+          <iframe id="previewFrame"></iframe>
+          <div class="cta-drag-marker" id="ctaDragMarker">⊞ CTA Position</div>
+        </div>
+      </div>
     </div>
 
     <!-- ============================================================ -->
@@ -673,37 +767,164 @@
     btnOverlay.addEventListener("click", async () => {
       if (!selectedPdfFile) return;
       btnOverlay.disabled = true;
-      setStatus("statusOverlay", "info", '<span class="spinner"></span> Applying overlay — this may take a moment…');
+      setStatus("statusOverlay", "info", '<span class="spinner"></span> Generating preview — this may take a moment for multi-page PDFs…');
 
       try {
-        const formData = new FormData();
-        formData.append("file", selectedPdfFile);
-        formData.append("ctaType", document.getElementById("ctaType").value);
-        formData.append("ctaUrl", document.getElementById("ctaUrl").value || "");
-        formData.append("blurRadius", document.getElementById("blurRadius").value);
-        formData.append("blurStyle", document.getElementById("blurStyle").value);
-        formData.append("overlayOpacity", document.getElementById("overlayOpacity").value);
-        formData.append("overlayColor", document.getElementById("overlayColor").value || "#FFFFFF");
-        formData.append("filename", document.getElementById("overlayFilename").value || "overlay.pdf");
+        const formData = buildOverlayFormData();
+        formData.append("preview", "true");  // Request inline display
 
-        const isQr = document.getElementById("ctaType").value === "qrCode";
-        if (isQr) {
-          formData.append("ctaLabel", document.getElementById("ctaLabel").value || "Scan to View Document");
-          formData.append("qrSize", document.getElementById("qrSize").value);
-          formData.append("qrColor", document.getElementById("qrColor").value || "#1a1a2e");
-          formData.append("qrBackground", document.getElementById("qrBackground").value || "#FFFFFF");
-          formData.append("ctaFontSize", "14");
-        } else {
-          formData.append("ctaText", document.getElementById("ctaText").value || "Click to View");
-          formData.append("ctaBgColor", document.getElementById("ctaBgColor").value || "#2563EB");
-          formData.append("ctaTextColor", document.getElementById("ctaTextColor").value || "#FFFFFF");
-          formData.append("ctaWidth", document.getElementById("ctaWidth").value);
-          formData.append("ctaHeight", document.getElementById("ctaHeight").value);
-          formData.append("ctaFontSize", document.getElementById("ctaFontSize").value);
-          formData.append("ctaBorderRadius", document.getElementById("ctaBorderRadius").value);
-          formData.append("ctaStyle", document.getElementById("ctaStyle").value);
+        const res = await fetch("/overlay?preview=true", { method: "POST", body: formData });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: res.statusText }));
+          throw new Error(err.error || "Server error");
         }
+        const blob = await res.blob();
+        lastOverlayBlob = blob;
 
+        // Show preview in iframe
+        const previewUrl = URL.createObjectURL(blob);
+        document.getElementById("previewFrame").src = previewUrl;
+        document.getElementById("previewPanel").classList.add("active");
+
+        // Show draggable CTA marker
+        const marker = document.getElementById("ctaDragMarker");
+        marker.classList.add("active");
+        document.getElementById("dragHint").classList.add("active");
+
+        // Position marker at current CTA position
+        // ctaPosition.y is in PDF coords (0=bottom, 1=top), preview is screen coords (0=top)
+        const wrapper = document.getElementById("previewWrapper");
+        const wRect = wrapper.getBoundingClientRect();
+        const initX = Math.max(0, (ctaPosition.x * wRect.width) - (marker.offsetWidth / 2));
+        const initY = Math.max(0, ((1 - ctaPosition.y) * wRect.height) - (marker.offsetHeight / 2));
+        marker.style.left = initX + "px";
+        marker.style.top = initY + "px";
+
+        setStatus("statusOverlay", "success", "✅ Preview ready — drag the CTA marker to reposition, then download.");
+      } catch (err) {
+        setStatus("statusOverlay", "error", "❌ " + err.message);
+      } finally {
+        btnOverlay.disabled = false;
+      }
+    });
+
+    // ---- Build overlay form data (shared between preview and download) ----
+    function buildOverlayFormData(customCtaX, customCtaY) {
+      const formData = new FormData();
+      formData.append("file", selectedPdfFile);
+      formData.append("ctaType", document.getElementById("ctaType").value);
+      formData.append("ctaUrl", document.getElementById("ctaUrl").value || "");
+      formData.append("blurRadius", document.getElementById("blurRadius").value);
+      formData.append("blurStyle", document.getElementById("blurStyle").value);
+      formData.append("overlayOpacity", document.getElementById("overlayOpacity").value);
+      formData.append("overlayColor", document.getElementById("overlayColor").value || "#FFFFFF");
+      formData.append("filename", document.getElementById("overlayFilename").value || "overlay.pdf");
+
+      if (customCtaX !== undefined) formData.append("ctaX", String(customCtaX));
+      if (customCtaY !== undefined) formData.append("ctaY", String(customCtaY));
+
+      const isQr = document.getElementById("ctaType").value === "qrCode";
+      if (isQr) {
+        formData.append("ctaLabel", document.getElementById("ctaLabel").value || "Scan to View Document");
+        formData.append("qrSize", document.getElementById("qrSize").value);
+        formData.append("qrColor", document.getElementById("qrColor").value || "#1a1a2e");
+        formData.append("qrBackground", document.getElementById("qrBackground").value || "#FFFFFF");
+        formData.append("ctaFontSize", "14");
+      } else {
+        formData.append("ctaText", document.getElementById("ctaText").value || "Click to View");
+        formData.append("ctaBgColor", document.getElementById("ctaBgColor").value || "#2563EB");
+        formData.append("ctaTextColor", document.getElementById("ctaTextColor").value || "#FFFFFF");
+        formData.append("ctaWidth", document.getElementById("ctaWidth").value);
+        formData.append("ctaHeight", document.getElementById("ctaHeight").value);
+        formData.append("ctaFontSize", document.getElementById("ctaFontSize").value);
+        formData.append("ctaBorderRadius", document.getElementById("ctaBorderRadius").value);
+        formData.append("ctaStyle", document.getElementById("ctaStyle").value);
+      }
+      return formData;
+    }
+
+    // ---- Preview: draggable CTA marker ----
+    let lastOverlayBlob = null;
+    let ctaPosition = { x: 0.5, y: 0.38 }; // default: center-x, lower-third
+
+    (function initDraggableCta() {
+      const marker = document.getElementById("ctaDragMarker");
+      const wrapper = document.getElementById("previewWrapper");
+      let isDragging = false;
+      let offsetX = 0, offsetY = 0;
+
+      marker.addEventListener("mousedown", (e) => {
+        isDragging = true;
+        offsetX = e.clientX - marker.getBoundingClientRect().left;
+        offsetY = e.clientY - marker.getBoundingClientRect().top;
+        marker.style.cursor = "grabbing";
+        e.preventDefault();
+      });
+
+      document.addEventListener("mousemove", (e) => {
+        if (!isDragging) return;
+        const wRect = wrapper.getBoundingClientRect();
+        let x = e.clientX - wRect.left - offsetX;
+        let y = e.clientY - wRect.top - offsetY;
+        // Clamp within wrapper
+        x = Math.max(0, Math.min(x, wRect.width - marker.offsetWidth));
+        y = Math.max(0, Math.min(y, wRect.height - marker.offsetHeight));
+        marker.style.left = x + "px";
+        marker.style.top = y + "px";
+      });
+
+      document.addEventListener("mouseup", () => {
+        if (!isDragging) return;
+        isDragging = false;
+        marker.style.cursor = "grab";
+        // Calculate position as fraction of page (0-1)
+        const wRect = wrapper.getBoundingClientRect();
+        const markerCenterX = (marker.offsetLeft + marker.offsetWidth / 2) / wRect.width;
+        const markerCenterY = (marker.offsetTop + marker.offsetHeight / 2) / wRect.height;
+        // Convert to PDF coords (y is inverted: 0=bottom, 1=top in PDF)
+        ctaPosition.x = Math.max(0, Math.min(1, markerCenterX));
+        ctaPosition.y = Math.max(0, Math.min(1, 1 - markerCenterY));
+      });
+
+      // Touch support for mobile
+      marker.addEventListener("touchstart", (e) => {
+        isDragging = true;
+        const touch = e.touches[0];
+        offsetX = touch.clientX - marker.getBoundingClientRect().left;
+        offsetY = touch.clientY - marker.getBoundingClientRect().top;
+        e.preventDefault();
+      });
+      document.addEventListener("touchmove", (e) => {
+        if (!isDragging) return;
+        const touch = e.touches[0];
+        const wRect = wrapper.getBoundingClientRect();
+        let x = touch.clientX - wRect.left - offsetX;
+        let y = touch.clientY - wRect.top - offsetY;
+        x = Math.max(0, Math.min(x, wRect.width - marker.offsetWidth));
+        y = Math.max(0, Math.min(y, wRect.height - marker.offsetHeight));
+        marker.style.left = x + "px";
+        marker.style.top = y + "px";
+      });
+      document.addEventListener("touchend", () => {
+        if (!isDragging) return;
+        isDragging = false;
+        const wRect = wrapper.getBoundingClientRect();
+        const markerCenterX = (marker.offsetLeft + marker.offsetWidth / 2) / wRect.width;
+        const markerCenterY = (marker.offsetTop + marker.offsetHeight / 2) / wRect.height;
+        ctaPosition.x = Math.max(0, Math.min(1, markerCenterX));
+        ctaPosition.y = Math.max(0, Math.min(1, 1 - markerCenterY));
+      });
+    })();
+
+    // ---- Preview panel: Download button ----
+    document.getElementById("btnPreviewDownload").addEventListener("click", async () => {
+      const btn = document.getElementById("btnPreviewDownload");
+      btn.disabled = true;
+      btn.textContent = "⏳ Generating…";
+
+      try {
+        // Re-generate with the custom CTA position
+        const formData = buildOverlayFormData(ctaPosition.x, ctaPosition.y);
         const res = await fetch("/overlay", { method: "POST", body: formData });
         if (!res.ok) {
           const err = await res.json().catch(() => ({ error: res.statusText }));
@@ -712,12 +933,23 @@
         const blob = await res.blob();
         const fname = document.getElementById("overlayFilename").value || "overlay.pdf";
         downloadBlob(blob, fname);
-        setStatus("statusOverlay", "success", "✅ Overlay PDF generated — <strong>" + fname + "</strong>");
+        setStatus("statusOverlay", "success", "✅ PDF downloaded with custom CTA position — <strong>" + fname + "</strong>");
       } catch (err) {
         setStatus("statusOverlay", "error", "❌ " + err.message);
       } finally {
-        btnOverlay.disabled = false;
+        btn.disabled = false;
+        btn.textContent = "⬇ Download PDF";
       }
+    });
+
+    // ---- Preview panel: Close button ----
+    document.getElementById("btnPreviewClose").addEventListener("click", () => {
+      const panel = document.getElementById("previewPanel");
+      panel.classList.remove("active");
+      document.getElementById("ctaDragMarker").classList.remove("active");
+      document.getElementById("dragHint").classList.remove("active");
+      const frame = document.getElementById("previewFrame");
+      if (frame.src) { URL.revokeObjectURL(frame.src); frame.src = ""; }
     });
 
     // ---- Merge PDFs ----

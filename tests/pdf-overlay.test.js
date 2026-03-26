@@ -275,6 +275,63 @@ describe("PdfOverlayEngine", () => {
       PdfOverlayEngine._pdftoppmAvailable = origValue;
     }
   });
+
+  it("should handle 5+ page PDFs correctly", async () => {
+    const source = await createTestPdf(7);
+    const engine = new PdfOverlayEngine();
+    const result = await engine.processBuffer(source, {
+      ctaText: "View Full Document",
+      ctaUrl: "https://example.com",
+    });
+
+    expect(result).toBeInstanceOf(Buffer);
+    const loaded = await PDFDocument.load(result);
+    expect(loaded.getPageCount()).toBe(7);
+
+    // Verify every page has CTA annotation
+    for (let i = 0; i < 7; i++) {
+      const page = loaded.getPage(i);
+      const annots = page.node.get(PDFName.of("Annots"));
+      expect(annots).toBeDefined();
+    }
+  });
+
+  it("should accept custom ctaX and ctaY position (0-1 fractions)", async () => {
+    const source = await createTestPdf();
+    const engine = new PdfOverlayEngine();
+    const result = await engine.processBuffer(source, {
+      ctaText: "Custom Position",
+      ctaUrl: "https://example.com",
+      ctaX: 0.25,
+      ctaY: 0.75,
+    });
+
+    expect(result).toBeInstanceOf(Buffer);
+    expect(result.slice(0, 5).toString()).toBe("%PDF-");
+
+    const loaded = await PDFDocument.load(result);
+    expect(loaded.getPageCount()).toBe(1);
+    // Verify annotation exists
+    const page = loaded.getPage(0);
+    const annots = page.node.get(PDFName.of("Annots"));
+    expect(annots).toBeDefined();
+  });
+
+  it("should accept ctaX/ctaY for QR code CTA type", async () => {
+    const source = await createTestPdf();
+    const engine = new PdfOverlayEngine();
+    const result = await engine.processBuffer(source, {
+      ctaType: "qrCode",
+      ctaUrl: "https://example.com/view",
+      ctaLabel: "Scan Here",
+      ctaX: 0.7,
+      ctaY: 0.6,
+    });
+
+    expect(result).toBeInstanceOf(Buffer);
+    const loaded = await PDFDocument.load(result);
+    expect(loaded.getPageCount()).toBe(1);
+  });
 });
 
 describe("POST /overlay endpoint", () => {

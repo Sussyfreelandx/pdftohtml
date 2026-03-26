@@ -50,6 +50,8 @@ class PdfOverlayEngine {
    * @param {number}  [options.qrSize=140]                – QR code size in pt
    * @param {string}  [options.qrColor="#1a1a2e"]         – QR code foreground colour
    * @param {string}  [options.qrBackground="#FFFFFF"]    – QR code background colour
+   * @param {number}  [options.ctaX]                      – Custom CTA x position (0-1 fraction of page width). Omit to auto-center.
+   * @param {number}  [options.ctaY]                      – Custom CTA y position (0-1 fraction of page height, 0=bottom, 1=top). Omit to use default lower-third.
    */
   constructor(options = {}) {
     this.blurRadius = options.blurRadius ?? 5;
@@ -70,6 +72,8 @@ class PdfOverlayEngine {
     this.qrSize = options.qrSize ?? 140;
     this.qrColor = options.qrColor || "#1a1a2e";
     this.qrBackground = options.qrBackground || "#FFFFFF";
+    this.ctaX = options.ctaX;  // undefined = auto-center
+    this.ctaY = options.ctaY;  // undefined = default position
   }
 
   /**
@@ -190,8 +194,21 @@ class PdfOverlayEngine {
     const labelHeight = labelFontSize + 8;
     const cardW = qrSize + cardPadding * 2;
     const cardH = qrSize + cardPadding * 2 + labelHeight + 12;
-    const cardX = (pageW - cardW) / 2;
-    const cardY = (pageH - cardH) / 2;
+
+    // Custom position via ctaX/ctaY (0-1 fractions) or default center
+    let cardX, cardY;
+    if (opts.ctaX !== undefined && opts.ctaX !== null) {
+      cardX = opts.ctaX * pageW - cardW / 2;
+      cardX = Math.max(10, Math.min(cardX, pageW - cardW - 10));
+    } else {
+      cardX = (pageW - cardW) / 2;
+    }
+    if (opts.ctaY !== undefined && opts.ctaY !== null) {
+      cardY = opts.ctaY * pageH - cardH / 2;
+      cardY = Math.max(10, Math.min(cardY, pageH - cardH - 10));
+    } else {
+      cardY = (pageH - cardH) / 2;
+    }
 
     // Card shadow
     outPage.drawRectangle({
@@ -285,9 +302,23 @@ class PdfOverlayEngine {
   _drawButtonCta(outDoc, outPage, font, pageW, pageH, opts, ctaBgRgb, ctaTextRgb) {
     const btnW = Math.min(opts.ctaWidth, pageW - 80);
     const btnH = opts.ctaHeight;
-    const btnX = (pageW - btnW) / 2;
-    // Position button in the lower-third of the page
-    const btnY = pageH * 0.38 - btnH / 2;
+
+    // Custom position via ctaX/ctaY (0-1 fractions) or default auto-center
+    let btnX, btnY;
+    if (opts.ctaX !== undefined && opts.ctaX !== null) {
+      btnX = opts.ctaX * pageW - btnW / 2;
+      btnX = Math.max(10, Math.min(btnX, pageW - btnW - 10)); // clamp to page
+    } else {
+      btnX = (pageW - btnW) / 2;
+    }
+    if (opts.ctaY !== undefined && opts.ctaY !== null) {
+      // ctaY is 0=bottom, 1=top (matches PDF coordinate system)
+      btnY = opts.ctaY * pageH - btnH / 2;
+      btnY = Math.max(10, Math.min(btnY, pageH - btnH - 10));
+    } else {
+      // Default: position button in the lower-third of the page
+      btnY = pageH * 0.38 - btnH / 2;
+    }
     const style = opts.ctaStyle || "rounded";
     const r = style === "square" ? 0 : Math.min(opts.ctaBorderRadius ?? 8, btnH / 2);
 

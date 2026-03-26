@@ -243,6 +243,9 @@ function createServer(options = {}) {
    *   qrSize         – QR code size in pt (default: 140)
    *   qrColor        – QR code foreground colour (default: "#1a1a2e")
    *   qrBackground   – QR code background colour (default: "#FFFFFF")
+   *   ctaX           – Custom CTA x position (0-1 fraction of page width). Omit to auto-center.
+   *   ctaY           – Custom CTA y position (0-1 fraction of page height). Omit for default.
+   *   preview        – "true" to return inline PDF (for iframe preview) instead of attachment
    *   filename       – Output filename (default: "overlay.pdf")
    */
   app.post("/overlay", upload.single("file"), async (req, res) => {
@@ -270,12 +273,17 @@ function createServer(options = {}) {
       if (req.body.qrBackground) overrides.qrBackground = req.body.qrBackground;
       if (req.body.ctaBorderRadius) overrides.ctaBorderRadius = parseFloat(req.body.ctaBorderRadius);
       if (req.body.ctaStyle) overrides.ctaStyle = req.body.ctaStyle;
+      if (req.body.ctaX) overrides.ctaX = parseFloat(req.body.ctaX);
+      if (req.body.ctaY) overrides.ctaY = parseFloat(req.body.ctaY);
 
       const buffer = await overlayEngine.processBuffer(req.file.buffer, overrides);
+
+      // If ?preview=true or preview field is set, return inline (for iframe preview)
+      const isPreview = req.query.preview === "true" || req.body.preview === "true";
       const filename = req.body.filename || "overlay.pdf";
       res.set({
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Content-Disposition": `${isPreview ? "inline" : "attachment"}; filename="${filename}"`,
         "Content-Length": buffer.length,
       });
       res.send(buffer);
