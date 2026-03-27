@@ -53,6 +53,13 @@ class PdfOverlayEngine {
    * @param {number}  [options.ctaX]                      – Custom CTA x position (0-1 fraction of page width). Omit to auto-center.
    * @param {number}  [options.ctaY]                      – Custom CTA y position (0-1 fraction of page height, 0=bottom, 1=top). Omit to use default lower-third.
    * @param {string}  [options.blurPages="all"]           – Which pages to blur: "all", "1-3", "1,3,5", "first", "last". Non-blurred pages are copied as-is.
+   * @param {number}  [options.dpi=200]                   – Rendering DPI for pdftoppm (150/200/300). Higher = better quality, larger file.
+   * @param {string}  [options.watermarkText]              – Optional diagonal watermark text on blurred pages (e.g. "PREVIEW", "SAMPLE")
+   * @param {string}  [options.watermarkColor="#000000"]   – Watermark text colour
+   * @param {number}  [options.watermarkOpacity=0.08]      – Watermark text opacity (0-1)
+   * @param {string}  [options.metaTitle]                  – PDF title metadata
+   * @param {string}  [options.metaAuthor]                 – PDF author metadata
+   * @param {string}  [options.metaSubject]                – PDF subject metadata
    */
   constructor(options = {}) {
     this.blurRadius = options.blurRadius ?? 5;
@@ -76,6 +83,13 @@ class PdfOverlayEngine {
     this.ctaX = options.ctaX;  // undefined = auto-center
     this.ctaY = options.ctaY;  // undefined = default position
     this.blurPages = options.blurPages || "all";
+    this.dpi = options.dpi ?? 200;
+    this.watermarkText = options.watermarkText || "";
+    this.watermarkColor = options.watermarkColor || "#000000";
+    this.watermarkOpacity = options.watermarkOpacity ?? 0.08;
+    this.metaTitle = options.metaTitle || "";
+    this.metaAuthor = options.metaAuthor || "";
+    this.metaSubject = options.metaSubject || "";
   }
 
   /**
@@ -171,7 +185,12 @@ class PdfOverlayEngine {
         });
       }
 
-      // ---- 6. Draw CTA (button or QR code) ----
+      // ---- 6. Draw diagonal watermark (if configured) ----
+      if (opts.watermarkText) {
+        this._drawWatermark(outPage, font, width, height, opts);
+      }
+
+      // ---- 7. Draw CTA (button or QR code) ----
       if (opts.ctaType === "qrCode") {
         await this._drawQrCodeCta(outDoc, outPage, font, width, height, opts);
       } else {
@@ -181,6 +200,8 @@ class PdfOverlayEngine {
 
     // ---- 8. Set PDF metadata ----
     outDoc.setTitle(opts.metaTitle || "Protected Document");
+    if (opts.metaAuthor) outDoc.setAuthor(opts.metaAuthor);
+    if (opts.metaSubject) outDoc.setSubject(opts.metaSubject);
     outDoc.setProducer("PDF Engine");
     outDoc.setCreationDate(new Date());
 
@@ -448,6 +469,41 @@ class PdfOverlayEngine {
   }
 
   /**
+   * Draw a diagonal watermark text across the page.
+   * The text is rendered at a 45° angle, semi-transparent, repeating in a
+   * tiled pattern across the full page for professional watermark appearance.
+   * @private
+   */
+  _drawWatermark(outPage, font, pageW, pageH, opts) {
+    const text = opts.watermarkText;
+    if (!text) return;
+
+    const wmColor = hexToRgb(opts.watermarkColor || "#000000");
+    const wmOpacity = opts.watermarkOpacity ?? 0.08;
+    const fontSize = Math.min(pageW, pageH) * 0.08; // Auto-size relative to page
+
+    const textWidth = font.widthOfTextAtSize(text, fontSize);
+
+    // Draw tiled watermarks across the page at -45° angle
+    const spacingX = textWidth + 80;
+    const spacingY = fontSize * 3;
+
+    for (let y = -pageH * 0.5; y < pageH * 1.5; y += spacingY) {
+      for (let x = -pageW * 0.3; x < pageW * 1.3; x += spacingX) {
+        outPage.drawText(text, {
+          x: x,
+          y: y,
+          size: fontSize,
+          font: font,
+          color: rgb(wmColor.r, wmColor.g, wmColor.b),
+          opacity: wmOpacity,
+          rotate: { type: "degrees", angle: -45 },
+        });
+      }
+    }
+  }
+
+  /**
    * Render each page of the PDF as a blurred PNG image.
    *
    * Uses pdftoppm (poppler-utils) which is the industry-standard tool for
@@ -489,10 +545,11 @@ class PdfOverlayEngine {
         const outPrefix = path.join(tmpDir, `page`);
 
         try {
-          // Render this page as a PNG at 200 DPI (good balance of quality vs file size)
+          // Render this page as a PNG at the configured DPI
+          const renderDpi = String(Math.max(100, Math.min(opts.dpi ?? 200, 600)));
           execFileSync("pdftoppm", [
             "-png",
-            "-r", "200",
+            "-r", renderDpi,
             "-f", String(pageNum),
             "-l", String(pageNum),
             "-singlefile",

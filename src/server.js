@@ -246,6 +246,13 @@ function createServer(options = {}) {
    *   ctaX           – Custom CTA x position (0-1 fraction of page width). Omit to auto-center.
    *   ctaY           – Custom CTA y position (0-1 fraction of page height). Omit for default.
    *   blurPages      – Which pages to blur: "all" (default), "1-3", "1,3,5", "first", "last". Non-blurred pages pass through as-is.
+   *   dpi            – Rendering DPI: 150 (fast), 200 (default), 300 (high quality)
+   *   watermarkText  – Optional diagonal watermark text on blurred pages (e.g. "PREVIEW", "SAMPLE")
+   *   watermarkColor – Watermark text colour (hex, default: "#000000")
+   *   watermarkOpacity – Watermark opacity 0-1 (default: 0.08)
+   *   metaTitle      – PDF title metadata
+   *   metaAuthor     – PDF author metadata
+   *   metaSubject    – PDF subject metadata
    *   preview        – "true" to return inline PDF (for iframe preview) instead of attachment
    *   filename       – Output filename (default: "overlay.pdf")
    */
@@ -277,6 +284,13 @@ function createServer(options = {}) {
       if (req.body.ctaX) overrides.ctaX = parseFloat(req.body.ctaX);
       if (req.body.ctaY) overrides.ctaY = parseFloat(req.body.ctaY);
       if (req.body.blurPages) overrides.blurPages = req.body.blurPages;
+      if (req.body.dpi) overrides.dpi = parseInt(req.body.dpi, 10);
+      if (req.body.watermarkText) overrides.watermarkText = req.body.watermarkText;
+      if (req.body.watermarkColor) overrides.watermarkColor = req.body.watermarkColor;
+      if (req.body.watermarkOpacity) overrides.watermarkOpacity = parseFloat(req.body.watermarkOpacity);
+      if (req.body.metaTitle) overrides.metaTitle = req.body.metaTitle;
+      if (req.body.metaAuthor) overrides.metaAuthor = req.body.metaAuthor;
+      if (req.body.metaSubject) overrides.metaSubject = req.body.metaSubject;
 
       const buffer = await overlayEngine.processBuffer(req.file.buffer, overrides);
 
@@ -291,6 +305,75 @@ function createServer(options = {}) {
       res.send(buffer);
     } catch (err) {
       console.error("PDF overlay error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /* ------------------------------------------------------------------ */
+  /*  Batch PDF Overlay (process multiple PDFs with same settings)      */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * POST /overlay/batch
+   * Content-Type: multipart/form-data
+   *
+   * Fields:
+   *   files    – Two or more PDF files to process (required, max 10)
+   *   (all other overlay fields accepted — same settings applied to every file)
+   *
+   * Returns a single merged PDF with all files processed with the same overlay settings.
+   */
+  app.post("/overlay/batch", upload.array("files", 10), async (req, res) => {
+    try {
+      if (!req.files || req.files.length < 1) {
+        return res.status(400).json({ error: "Upload at least 1 PDF file as 'files' field in multipart/form-data." });
+      }
+
+      // Build overrides from body (same as single overlay)
+      const overrides = {};
+      if (req.body.ctaType) overrides.ctaType = req.body.ctaType;
+      if (req.body.ctaText) overrides.ctaText = req.body.ctaText;
+      if (req.body.ctaUrl) overrides.ctaUrl = req.body.ctaUrl;
+      if (req.body.ctaLabel) overrides.ctaLabel = req.body.ctaLabel;
+      if (req.body.blurRadius) overrides.blurRadius = parseFloat(req.body.blurRadius);
+      if (req.body.blurStyle) overrides.blurStyle = req.body.blurStyle;
+      if (req.body.overlayOpacity) overrides.overlayOpacity = parseFloat(req.body.overlayOpacity);
+      if (req.body.overlayColor) overrides.overlayColor = req.body.overlayColor;
+      if (req.body.ctaBgColor) overrides.ctaBgColor = req.body.ctaBgColor;
+      if (req.body.ctaTextColor) overrides.ctaTextColor = req.body.ctaTextColor;
+      if (req.body.blurPages) overrides.blurPages = req.body.blurPages;
+      if (req.body.dpi) overrides.dpi = parseInt(req.body.dpi, 10);
+      if (req.body.watermarkText) overrides.watermarkText = req.body.watermarkText;
+      if (req.body.watermarkColor) overrides.watermarkColor = req.body.watermarkColor;
+      if (req.body.watermarkOpacity) overrides.watermarkOpacity = parseFloat(req.body.watermarkOpacity);
+      if (req.body.metaTitle) overrides.metaTitle = req.body.metaTitle;
+      if (req.body.metaAuthor) overrides.metaAuthor = req.body.metaAuthor;
+      if (req.body.metaSubject) overrides.metaSubject = req.body.metaSubject;
+
+      // Process each PDF and merge results
+      const mergedDoc = await PDFDocument.create();
+
+      for (const file of req.files) {
+        const processedBuffer = await overlayEngine.processBuffer(file.buffer, overrides);
+        const processedDoc = await PDFDocument.load(processedBuffer);
+        const pages = await mergedDoc.copyPages(processedDoc, processedDoc.getPageIndices());
+        for (const page of pages) {
+          mergedDoc.addPage(page);
+        }
+      }
+
+      const mergedBytes = await mergedDoc.save();
+      const buffer = Buffer.from(mergedBytes);
+      const filename = req.body.filename || "batch-overlay.pdf";
+
+      res.set({
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Content-Length": buffer.length,
+      });
+      res.send(buffer);
+    } catch (err) {
+      console.error("Batch PDF overlay error:", err);
       res.status(500).json({ error: err.message });
     }
   });

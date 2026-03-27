@@ -166,4 +166,9 @@ describe("PDF Server API", () => {
     expect(res.headers["content-type"]).toBe("application/pdf");
     expect(res.body.slice(0, 5).toString()).toBe("%PDF-");
   });
+
+  test("POST /overlay/batch returns 400 when no files uploaded", async () => {
+    const res = await request("POST", "/overlay/batch", {});
+    expect(res.status).toBe(400);
+  });
 });

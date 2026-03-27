@@ -247,6 +247,7 @@
     <button class="tab-btn active" data-tab="upload">Upload HTML</button>
     <button class="tab-btn" data-tab="url">URL → PDF</button>
     <button class="tab-btn" data-tab="overlay">PDF Overlay</button>
+    <button class="tab-btn" data-tab="batch">Batch Overlay</button>
     <button class="tab-btn" data-tab="merge">Merge PDFs</button>
     <button class="tab-btn" data-tab="template">Templates</button>
     <button class="tab-btn" data-tab="spec">Raw Spec</button>
@@ -507,6 +508,58 @@
         </div>
       </div>
 
+      <!-- Rendering Quality -->
+      <div class="options-row" style="margin-top: 12px;">
+        <div>
+          <label for="dpi">Rendering Quality (DPI)</label>
+          <select id="dpi">
+            <option value="150">Fast (150 DPI)</option>
+            <option value="200" selected>Default (200 DPI)</option>
+            <option value="300">High Quality (300 DPI)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Watermark -->
+      <div class="options-row" style="margin-top: 12px;">
+        <div>
+          <label for="watermarkText">Watermark Text <span style="font-weight:normal;color:#888;">(optional)</span></label>
+          <input type="text" id="watermarkText" placeholder="e.g. PREVIEW, SAMPLE, CONFIDENTIAL">
+        </div>
+        <div>
+          <label for="watermarkColor">Watermark Color</label>
+          <input type="color" id="watermarkColor" value="#000000" style="height: 38px; padding: 2px;">
+        </div>
+        <div>
+          <label for="watermarkOpacity">Watermark Opacity</label>
+          <select id="watermarkOpacity">
+            <option value="0.05">5% — Very faint</option>
+            <option value="0.08" selected>8% — Default</option>
+            <option value="0.12">12% — Moderate</option>
+            <option value="0.18">18% — Prominent</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- PDF Metadata -->
+      <details style="margin-top: 12px; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px; background: #f9fafb;">
+        <summary style="cursor: pointer; font-weight: 600; color: #555;">📋 PDF Metadata (optional)</summary>
+        <div class="options-row" style="margin-top: 8px;">
+          <div>
+            <label for="metaTitle">Title</label>
+            <input type="text" id="metaTitle" placeholder="e.g. Invoice #1234">
+          </div>
+          <div>
+            <label for="metaAuthor">Author</label>
+            <input type="text" id="metaAuthor" placeholder="e.g. Your Company Name">
+          </div>
+          <div>
+            <label for="metaSubject">Subject</label>
+            <input type="text" id="metaSubject" placeholder="e.g. Protected Invoice Document">
+          </div>
+        </div>
+      </details>
+
       <button class="btn btn-primary" id="btnOverlay" disabled>
         Preview &amp; Apply Overlay
       </button>
@@ -529,6 +582,61 @@
           <div class="cta-drag-marker" id="ctaDragMarker">⊞ CTA Position</div>
         </div>
       </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- TAB: Batch Overlay (process multiple PDFs with same settings) -->
+    <!-- ============================================================ -->
+    <div class="card" id="tab-batch">
+      <h2>Batch Overlay</h2>
+      <p class="subtitle">Upload multiple PDF files and apply the same blur + CTA overlay to all of them. Results are merged into a single output PDF.</p>
+
+      <div class="drop-zone" id="dropZoneBatch">
+        <input type="file" id="batchFiles" accept=".pdf" multiple>
+        <div class="icon">📚</div>
+        <div class="label">Drag &amp; drop multiple PDF files here</div>
+        <div class="hint">or click to browse — select up to 10 .pdf files</div>
+      </div>
+      <div class="file-name" id="batchFileNames"></div>
+
+      <div class="options-row" style="margin-top: 12px;">
+        <div>
+          <label for="batchCtaUrl">CTA Link URL</label>
+          <input type="url" id="batchCtaUrl" placeholder="https://example.com/view">
+        </div>
+        <div>
+          <label for="batchCtaText">Button Text</label>
+          <input type="text" id="batchCtaText" placeholder="Click to View" value="Click to View">
+        </div>
+      </div>
+
+      <div class="options-row" style="margin-top: 8px;">
+        <div>
+          <label for="batchBlurRadius">Blur Strength</label>
+          <input type="range" id="batchBlurRadius" min="1" max="40" value="5" step="1"
+                 style="width: 100%; height: 8px; cursor: pointer;">
+        </div>
+        <div>
+          <label for="batchBlurPages">Pages to Blur</label>
+          <select id="batchBlurPages">
+            <option value="all" selected>All Pages</option>
+            <option value="first">First Page Only</option>
+            <option value="last">Last Page Only</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="options-row" style="margin-top: 8px;">
+        <div>
+          <label for="batchWatermark">Watermark Text <span style="font-weight:normal;color:#888;">(optional)</span></label>
+          <input type="text" id="batchWatermark" placeholder="e.g. PREVIEW">
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="btnBatch" disabled>
+        Process All PDFs
+      </button>
+      <div class="status" id="statusBatch"></div>
     </div>
 
     <!-- ============================================================ -->
@@ -877,6 +985,26 @@
         formData.append("ctaBorderRadius", document.getElementById("ctaBorderRadius").value);
         formData.append("ctaStyle", document.getElementById("ctaStyle").value);
       }
+
+      // DPI
+      formData.append("dpi", document.getElementById("dpi").value);
+
+      // Watermark
+      const wmText = document.getElementById("watermarkText").value.trim();
+      if (wmText) {
+        formData.append("watermarkText", wmText);
+        formData.append("watermarkColor", document.getElementById("watermarkColor").value || "#000000");
+        formData.append("watermarkOpacity", document.getElementById("watermarkOpacity").value);
+      }
+
+      // PDF Metadata
+      const metaTitle = document.getElementById("metaTitle").value.trim();
+      const metaAuthor = document.getElementById("metaAuthor").value.trim();
+      const metaSubject = document.getElementById("metaSubject").value.trim();
+      if (metaTitle) formData.append("metaTitle", metaTitle);
+      if (metaAuthor) formData.append("metaAuthor", metaAuthor);
+      if (metaSubject) formData.append("metaSubject", metaSubject);
+
       return formData;
     }
 
@@ -987,6 +1115,67 @@
       document.getElementById("dragHint").classList.remove("active");
       const frame = document.getElementById("previewFrame");
       if (frame.src) { URL.revokeObjectURL(frame.src); frame.src = ""; }
+    });
+
+    // ---- Batch Overlay ----
+    const dropZoneBatch = document.getElementById("dropZoneBatch");
+    const batchFilesInput = document.getElementById("batchFiles");
+    const batchFileNamesEl = document.getElementById("batchFileNames");
+    const btnBatch = document.getElementById("btnBatch");
+    let batchFileList = [];
+
+    dropZoneBatch.addEventListener("dragover", (e) => { e.preventDefault(); dropZoneBatch.classList.add("dragover"); });
+    dropZoneBatch.addEventListener("dragleave", () => dropZoneBatch.classList.remove("dragover"));
+    dropZoneBatch.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropZoneBatch.classList.remove("dragover");
+      if (e.dataTransfer.files.length) handleBatchFiles(Array.from(e.dataTransfer.files));
+    });
+    batchFilesInput.addEventListener("change", () => {
+      if (batchFilesInput.files.length) handleBatchFiles(Array.from(batchFilesInput.files));
+    });
+
+    function handleBatchFiles(files) {
+      batchFileList = files.filter(f => f.name.toLowerCase().endsWith(".pdf")).slice(0, 10);
+      if (batchFileList.length < 1) {
+        batchFileNamesEl.textContent = "⚠️ Select at least 1 PDF file";
+        btnBatch.disabled = true;
+        return;
+      }
+      batchFileNamesEl.textContent = "✅ " + batchFileList.map(f => f.name).join(", ");
+      btnBatch.disabled = false;
+    }
+
+    btnBatch.addEventListener("click", async () => {
+      if (batchFileList.length < 1) return;
+      btnBatch.disabled = true;
+      setStatus("statusBatch", "info", '<span class="spinner"></span> Processing ' + batchFileList.length + ' PDF(s) — this may take a moment…');
+
+      try {
+        const formData = new FormData();
+        for (const file of batchFileList) {
+          formData.append("files", file);
+        }
+        formData.append("ctaUrl", document.getElementById("batchCtaUrl").value || "");
+        formData.append("ctaText", document.getElementById("batchCtaText").value || "Click to View");
+        formData.append("blurRadius", document.getElementById("batchBlurRadius").value);
+        formData.append("blurPages", document.getElementById("batchBlurPages").value);
+        const wm = document.getElementById("batchWatermark").value.trim();
+        if (wm) formData.append("watermarkText", wm);
+
+        const res = await fetch("/overlay/batch", { method: "POST", body: formData });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: res.statusText }));
+          throw new Error(err.error || "Server error");
+        }
+        const blob = await res.blob();
+        downloadBlob(blob, "batch-overlay.pdf");
+        setStatus("statusBatch", "success", "✅ Batch overlay complete — <strong>batch-overlay.pdf</strong> downloaded (" + batchFileList.length + " files processed)");
+      } catch (err) {
+        setStatus("statusBatch", "error", "❌ " + err.message);
+      } finally {
+        btnBatch.disabled = false;
+      }
     });
 
     // ---- Merge PDFs ----

@@ -491,4 +491,60 @@ describe("POST /overlay endpoint", () => {
     const outDoc = await PDFDocument.load(result);
     expect(outDoc.getPageCount()).toBe(3); // All 3 pages present
   });
+
+  // ---- New feature tests ----
+
+  it("should apply diagonal watermark text on blurred pages", async () => {
+    const source = await createTestPdf();
+    const engine = new PdfOverlayEngine();
+    const result = await engine.processBuffer(source, {
+      watermarkText: "PREVIEW",
+      watermarkColor: "#FF0000",
+      watermarkOpacity: 0.12,
+    });
+    expect(result).toBeInstanceOf(Buffer);
+    expect(result.length).toBeGreaterThan(0);
+    const outDoc = await PDFDocument.load(result);
+    expect(outDoc.getPageCount()).toBe(1);
+  });
+
+  it("should set PDF metadata (title, author, subject)", async () => {
+    const source = await createTestPdf();
+    const engine = new PdfOverlayEngine();
+    const result = await engine.processBuffer(source, {
+      metaTitle: "My Invoice",
+      metaAuthor: "Test Company",
+      metaSubject: "Protected Document",
+    });
+    const outDoc = await PDFDocument.load(result);
+    expect(outDoc.getTitle()).toBe("My Invoice");
+    expect(outDoc.getAuthor()).toBe("Test Company");
+    expect(outDoc.getSubject()).toBe("Protected Document");
+  });
+
+  it("should accept custom DPI setting", async () => {
+    const source = await createTestPdf();
+    const engine = new PdfOverlayEngine({ dpi: 150 });
+    expect(engine.dpi).toBe(150);
+    const result = await engine.processBuffer(source, { dpi: 300 });
+    expect(result).toBeInstanceOf(Buffer);
+    expect(result.length).toBeGreaterThan(0);
+  });
+
+  it("should accept watermark defaults in constructor", async () => {
+    const engine = new PdfOverlayEngine({
+      watermarkText: "SAMPLE",
+      watermarkColor: "#0000FF",
+      watermarkOpacity: 0.1,
+      metaTitle: "Default Title",
+      metaAuthor: "Default Author",
+      dpi: 300,
+    });
+    expect(engine.watermarkText).toBe("SAMPLE");
+    expect(engine.watermarkColor).toBe("#0000FF");
+    expect(engine.watermarkOpacity).toBe(0.1);
+    expect(engine.metaTitle).toBe("Default Title");
+    expect(engine.metaAuthor).toBe("Default Author");
+    expect(engine.dpi).toBe(300);
+  });
 });
