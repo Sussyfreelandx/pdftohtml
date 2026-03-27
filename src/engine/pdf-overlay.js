@@ -47,6 +47,7 @@ class PdfOverlayEngine {
    * @param {number}  [options.ctaWidth=180]              – Button width in pt (or QR code size)
    * @param {number}  [options.ctaHeight=38]              – Button height in pt
    * @param {number}  [options.ctaBorderRadius=8]         – Button corner radius
+   * @param {string}  [options.ctaIcon]                   – Emoji/text prefix for button label (e.g. "🔓", "👁", "📄")
    * @param {number}  [options.qrSize=140]                – QR code size in pt
    * @param {string}  [options.qrColor="#1a1a2e"]         – QR code foreground colour
    * @param {string}  [options.qrBackground="#FFFFFF"]    – QR code background colour
@@ -77,6 +78,7 @@ class PdfOverlayEngine {
     this.ctaHeight = options.ctaHeight ?? 44;
     this.ctaBorderRadius = options.ctaBorderRadius ?? 8;
     this.ctaStyle = options.ctaStyle || "rounded";
+    this.ctaIcon = options.ctaIcon || "";
     this.qrSize = options.qrSize ?? 140;
     this.qrColor = options.qrColor || "#1a1a2e";
     this.qrBackground = options.qrBackground || "#FFFFFF";
@@ -325,128 +327,77 @@ class PdfOverlayEngine {
   }
 
   /**
-   * Draw a button CTA centered on the page with optional rounded corners.
+   * Draw a styled CTA button on the page.
    *
-   * Supports three styles via opts.ctaStyle:
-   *   - "rounded" (default) — filled button with rounded corners
-   *   - "square"  — filled button with sharp corners
-   *   - "outline" — transparent button with a coloured border
+   * Supports eight styles via opts.ctaStyle:
+   *   - "rounded"  (default) — filled button with rounded corners
+   *   - "square"   — filled button with sharp corners
+   *   - "outline"  — transparent button with a coloured border
+   *   - "pill"     — fully-rounded pill shape (radius = half height)
+   *   - "gradient" — two-tone gradient fill (darker at top, lighter at bottom)
+   *   - "shadow3d" — raised 3D button with stronger layered shadow
+   *   - "banner"   — full-width page banner
+   *   - "minimal"  — clean text-only with subtle underline
    *
    * @private
    */
   _drawButtonCta(outDoc, outPage, font, pageW, pageH, opts, ctaBgRgb, ctaTextRgb) {
-    const btnW = Math.min(opts.ctaWidth, pageW - 80);
+    const style = opts.ctaStyle || "rounded";
+
+    // Button dimensions — "banner" uses nearly full page width
+    let btnW = style === "banner"
+      ? pageW - 40
+      : Math.min(opts.ctaWidth, pageW - 80);
     const btnH = opts.ctaHeight;
 
     // Custom position via ctaX/ctaY (0-1 fractions) or default auto-center
     let btnX, btnY;
     if (opts.ctaX !== undefined && opts.ctaX !== null) {
       btnX = opts.ctaX * pageW - btnW / 2;
-      btnX = Math.max(10, Math.min(btnX, pageW - btnW - 10)); // clamp to page
+      btnX = Math.max(10, Math.min(btnX, pageW - btnW - 10));
     } else {
       btnX = (pageW - btnW) / 2;
     }
     if (opts.ctaY !== undefined && opts.ctaY !== null) {
-      // ctaY is 0=bottom, 1=top (matches PDF coordinate system)
       btnY = opts.ctaY * pageH - btnH / 2;
       btnY = Math.max(10, Math.min(btnY, pageH - btnH - 10));
     } else {
-      // Default: position button in the lower-third of the page
       btnY = pageH * 0.38 - btnH / 2;
     }
-    const style = opts.ctaStyle || "rounded";
-    const r = style === "square" ? 0 : Math.min(opts.ctaBorderRadius ?? 8, btnH / 2);
 
-    if (r > 0) {
-      // ---- Rounded rectangle via SVG path ----
-      const svgPath = roundedRectSvgPath(btnW, btnH, r);
-
-      // Shadow (offset +2, -2)
-      outPage.drawSvgPath(svgPath, {
-        x: btnX + 2,
-        y: btnY + btnH - 2,
-        color: rgb(0, 0, 0),
-        opacity: 0.15,
-      });
-
-      // Background (filled or outline)
-      if (style === "outline") {
-        outPage.drawSvgPath(svgPath, {
-          x: btnX,
-          y: btnY + btnH,
-          borderColor: rgb(ctaBgRgb.r, ctaBgRgb.g, ctaBgRgb.b),
-          borderWidth: 2,
-          borderOpacity: 1,
-          color: rgb(1, 1, 1),
-          opacity: 0,
-        });
-      } else {
-        outPage.drawSvgPath(svgPath, {
-          x: btnX,
-          y: btnY + btnH,
-          color: rgb(ctaBgRgb.r, ctaBgRgb.g, ctaBgRgb.b),
-          opacity: 1,
-          borderColor: rgb(
-            Math.max(ctaBgRgb.r - 0.08, 0),
-            Math.max(ctaBgRgb.g - 0.08, 0),
-            Math.max(ctaBgRgb.b - 0.08, 0)
-          ),
-          borderWidth: 0.75,
-        });
-      }
+    // Compute corner radius based on style
+    let r;
+    if (style === "square" || style === "banner" || style === "minimal") {
+      r = 0;
+    } else if (style === "pill") {
+      r = btnH / 2;
     } else {
-      // ---- Sharp rectangle (square style) ----
-      outPage.drawRectangle({
-        x: btnX + 2,
-        y: btnY - 2,
-        width: btnW,
-        height: btnH,
-        color: rgb(0, 0, 0),
-        opacity: 0.15,
-      });
-      if (style === "outline") {
-        outPage.drawRectangle({
-          x: btnX,
-          y: btnY,
-          width: btnW,
-          height: btnH,
-          borderColor: rgb(ctaBgRgb.r, ctaBgRgb.g, ctaBgRgb.b),
-          borderWidth: 2,
-          color: rgb(1, 1, 1),
-          opacity: 0,
-        });
-      } else {
-        outPage.drawRectangle({
-          x: btnX,
-          y: btnY,
-          width: btnW,
-          height: btnH,
-          color: rgb(ctaBgRgb.r, ctaBgRgb.g, ctaBgRgb.b),
-          opacity: 1,
-          borderColor: rgb(
-            Math.max(ctaBgRgb.r - 0.08, 0),
-            Math.max(ctaBgRgb.g - 0.08, 0),
-            Math.max(ctaBgRgb.b - 0.08, 0)
-          ),
-          borderWidth: 0.75,
-        });
-      }
+      r = Math.min(opts.ctaBorderRadius ?? 8, btnH / 2);
     }
 
-    // Button text (centered)
-    const fontSize = opts.ctaFontSize;
-    const textWidth = font.widthOfTextAtSize(opts.ctaText, fontSize);
-    const textX = btnX + (btnW - textWidth) / 2;
-    const textY = btnY + (btnH - fontSize) / 2 + 2;
-    const textRgb = style === "outline" ? ctaBgRgb : ctaTextRgb;
+    // Prepend icon to button text if set.
+    // Standard PDF fonts (Helvetica, etc.) only support WinAnsi encoding,
+    // so we strip any non-ASCII characters (emoji) and use ASCII fallbacks.
+    let displayText = opts.ctaText;
+    if (opts.ctaIcon) {
+      // Remove non-ASCII characters from icon and use as prefix if anything remains
+      const safeIcon = opts.ctaIcon.replace(/[^\x20-\x7E]/g, "").trim();
+      if (safeIcon) {
+        displayText = `${safeIcon}  ${opts.ctaText}`;
+      }
+      // If icon was emoji-only (nothing left after stripping), skip prefix gracefully
+    }
 
-    outPage.drawText(opts.ctaText, {
-      x: textX,
-      y: textY,
-      size: fontSize,
-      font: font,
-      color: rgb(textRgb.r, textRgb.g, textRgb.b),
-    });
+    // ---- Draw based on style ----
+    if (style === "minimal") {
+      this._drawMinimalCta(outPage, font, btnX, btnY, btnW, btnH, displayText, opts, ctaBgRgb);
+    } else if (style === "gradient") {
+      this._drawGradientCta(outPage, font, btnX, btnY, btnW, btnH, r, displayText, opts, ctaBgRgb, ctaTextRgb);
+    } else if (style === "shadow3d") {
+      this._drawShadow3dCta(outPage, font, btnX, btnY, btnW, btnH, r, displayText, opts, ctaBgRgb, ctaTextRgb);
+    } else {
+      this._drawStandardCta(outPage, font, btnX, btnY, btnW, btnH, r, style, displayText, opts, ctaBgRgb, ctaTextRgb);
+    }
 
     // Add clickable link annotation over the CTA button
     if (opts.ctaUrl) {
@@ -466,6 +417,211 @@ class PdfOverlayEngine {
       const annotRef = context.register(annotDict);
       outPage.node.set(PDFName.of("Annots"), context.obj([annotRef]));
     }
+  }
+
+  /**
+   * Standard button drawing (rounded, square, outline, pill, banner).
+   * @private
+   */
+  _drawStandardCta(outPage, font, btnX, btnY, btnW, btnH, r, style, displayText, opts, ctaBgRgb, ctaTextRgb) {
+    if (r > 0) {
+      const svgPath = roundedRectSvgPath(btnW, btnH, r);
+
+      // Shadow
+      outPage.drawSvgPath(svgPath, {
+        x: btnX + 2, y: btnY + btnH - 2,
+        color: rgb(0, 0, 0), opacity: 0.15,
+      });
+
+      if (style === "outline") {
+        outPage.drawSvgPath(svgPath, {
+          x: btnX, y: btnY + btnH,
+          borderColor: rgb(ctaBgRgb.r, ctaBgRgb.g, ctaBgRgb.b),
+          borderWidth: 2, borderOpacity: 1,
+          color: rgb(1, 1, 1), opacity: 0,
+        });
+      } else {
+        outPage.drawSvgPath(svgPath, {
+          x: btnX, y: btnY + btnH,
+          color: rgb(ctaBgRgb.r, ctaBgRgb.g, ctaBgRgb.b), opacity: 1,
+          borderColor: rgb(
+            Math.max(ctaBgRgb.r - 0.08, 0),
+            Math.max(ctaBgRgb.g - 0.08, 0),
+            Math.max(ctaBgRgb.b - 0.08, 0)
+          ),
+          borderWidth: 0.75,
+        });
+      }
+    } else {
+      // Sharp rectangle (square / banner)
+      outPage.drawRectangle({
+        x: btnX + 2, y: btnY - 2, width: btnW, height: btnH,
+        color: rgb(0, 0, 0), opacity: 0.15,
+      });
+      if (style === "outline") {
+        outPage.drawRectangle({
+          x: btnX, y: btnY, width: btnW, height: btnH,
+          borderColor: rgb(ctaBgRgb.r, ctaBgRgb.g, ctaBgRgb.b),
+          borderWidth: 2, color: rgb(1, 1, 1), opacity: 0,
+        });
+      } else {
+        outPage.drawRectangle({
+          x: btnX, y: btnY, width: btnW, height: btnH,
+          color: rgb(ctaBgRgb.r, ctaBgRgb.g, ctaBgRgb.b), opacity: 1,
+          borderColor: rgb(
+            Math.max(ctaBgRgb.r - 0.08, 0),
+            Math.max(ctaBgRgb.g - 0.08, 0),
+            Math.max(ctaBgRgb.b - 0.08, 0)
+          ),
+          borderWidth: 0.75,
+        });
+      }
+    }
+
+    // Text
+    const fontSize = opts.ctaFontSize;
+    const textWidth = font.widthOfTextAtSize(displayText, fontSize);
+    const textX = btnX + (btnW - textWidth) / 2;
+    const textY = btnY + (btnH - fontSize) / 2 + 2;
+    const textRgb = style === "outline" ? ctaBgRgb : ctaTextRgb;
+
+    outPage.drawText(displayText, {
+      x: textX, y: textY, size: fontSize, font,
+      color: rgb(textRgb.r, textRgb.g, textRgb.b),
+    });
+  }
+
+  /**
+   * Gradient button: simulated 2-colour gradient using horizontal bands.
+   * @private
+   */
+  _drawGradientCta(outPage, font, btnX, btnY, btnW, btnH, r, displayText, opts, ctaBgRgb, ctaTextRgb) {
+    const svgPath = r > 0 ? roundedRectSvgPath(btnW, btnH, r) : null;
+
+    // Shadow
+    if (svgPath) {
+      outPage.drawSvgPath(svgPath, {
+        x: btnX + 2, y: btnY + btnH - 2,
+        color: rgb(0, 0, 0), opacity: 0.18,
+      });
+    } else {
+      outPage.drawRectangle({
+        x: btnX + 2, y: btnY - 2, width: btnW, height: btnH,
+        color: rgb(0, 0, 0), opacity: 0.18,
+      });
+    }
+
+    // Gradient bands (8 horizontal strips from darker top to lighter bottom)
+    const bands = 8;
+    const bandH = btnH / bands;
+    for (let b = 0; b < bands; b++) {
+      const t = b / Math.max(bands - 1, 1); // 0 at top, 1 at bottom
+      const bandColor = {
+        r: Math.min(ctaBgRgb.r + t * 0.15, 1),
+        g: Math.min(ctaBgRgb.g + t * 0.15, 1),
+        b: Math.min(ctaBgRgb.b + t * 0.15, 1),
+      };
+      outPage.drawRectangle({
+        x: btnX, y: btnY + (bands - 1 - b) * bandH,
+        width: btnW, height: bandH + 0.5,
+        color: rgb(bandColor.r, bandColor.g, bandColor.b), opacity: 1,
+      });
+    }
+
+    // Clean up edges with border
+    if (svgPath) {
+      outPage.drawSvgPath(svgPath, {
+        x: btnX, y: btnY + btnH,
+        color: rgb(0, 0, 0), opacity: 0,
+        borderColor: rgb(
+          Math.max(ctaBgRgb.r - 0.1, 0),
+          Math.max(ctaBgRgb.g - 0.1, 0),
+          Math.max(ctaBgRgb.b - 0.1, 0)
+        ),
+        borderWidth: 1.5,
+      });
+    }
+
+    // Text
+    const fontSize = opts.ctaFontSize;
+    const textWidth = font.widthOfTextAtSize(displayText, fontSize);
+    outPage.drawText(displayText, {
+      x: btnX + (btnW - textWidth) / 2,
+      y: btnY + (btnH - fontSize) / 2 + 2,
+      size: fontSize, font,
+      color: rgb(ctaTextRgb.r, ctaTextRgb.g, ctaTextRgb.b),
+    });
+  }
+
+  /**
+   * 3D raised button: layered shadows for depth effect.
+   * @private
+   */
+  _drawShadow3dCta(outPage, font, btnX, btnY, btnW, btnH, r, displayText, opts, ctaBgRgb, ctaTextRgb) {
+    const svgPath = r > 0 ? roundedRectSvgPath(btnW, btnH, r) : null;
+    const drawShape = (x, y, color, opacity, borderColor, borderWidth) => {
+      if (svgPath) {
+        const shapeOpts = { x, y: y + btnH, color, opacity };
+        if (borderColor) { shapeOpts.borderColor = borderColor; shapeOpts.borderWidth = borderWidth; }
+        outPage.drawSvgPath(svgPath, shapeOpts);
+      } else {
+        const shapeOpts = { x, y, width: btnW, height: btnH, color, opacity };
+        if (borderColor) { shapeOpts.borderColor = borderColor; shapeOpts.borderWidth = borderWidth; }
+        outPage.drawRectangle(shapeOpts);
+      }
+    };
+
+    // Three shadow layers for depth
+    drawShape(btnX + 4, btnY - 4, rgb(0, 0, 0), 0.08, null, 0);
+    drawShape(btnX + 3, btnY - 3, rgb(0, 0, 0), 0.12, null, 0);
+    drawShape(btnX + 1.5, btnY - 1.5, rgb(0, 0, 0), 0.18, null, 0);
+
+    // Main body
+    drawShape(btnX, btnY, rgb(ctaBgRgb.r, ctaBgRgb.g, ctaBgRgb.b), 1,
+      rgb(Math.max(ctaBgRgb.r - 0.12, 0), Math.max(ctaBgRgb.g - 0.12, 0), Math.max(ctaBgRgb.b - 0.12, 0)), 1.2);
+
+    // Top highlight (lighter strip at top 30%)
+    const highlightH = btnH * 0.35;
+    outPage.drawRectangle({
+      x: btnX + 2, y: btnY + btnH - highlightH,
+      width: btnW - 4, height: highlightH - 1,
+      color: rgb(1, 1, 1), opacity: 0.12,
+    });
+
+    // Text
+    const fontSize = opts.ctaFontSize;
+    const textWidth = font.widthOfTextAtSize(displayText, fontSize);
+    outPage.drawText(displayText, {
+      x: btnX + (btnW - textWidth) / 2,
+      y: btnY + (btnH - fontSize) / 2 + 2,
+      size: fontSize, font,
+      color: rgb(ctaTextRgb.r, ctaTextRgb.g, ctaTextRgb.b),
+    });
+  }
+
+  /**
+   * Minimal CTA: text-only with a subtle coloured underline.
+   * @private
+   */
+  _drawMinimalCta(outPage, font, btnX, btnY, btnW, btnH, displayText, opts, ctaBgRgb) {
+    const fontSize = opts.ctaFontSize;
+    const textWidth = font.widthOfTextAtSize(displayText, fontSize);
+    const textX = btnX + (btnW - textWidth) / 2;
+    const textY = btnY + (btnH - fontSize) / 2 + 2;
+
+    // Text in button colour
+    outPage.drawText(displayText, {
+      x: textX, y: textY, size: fontSize, font,
+      color: rgb(ctaBgRgb.r, ctaBgRgb.g, ctaBgRgb.b),
+    });
+
+    // Subtle underline below text
+    outPage.drawRectangle({
+      x: textX - 4, y: textY - 3,
+      width: textWidth + 8, height: 1.5,
+      color: rgb(ctaBgRgb.r, ctaBgRgb.g, ctaBgRgb.b),
+      opacity: 0.6,
+    });
   }
 
   /**

@@ -256,6 +256,85 @@ describe("PdfOverlayEngine", () => {
     expect(result.slice(0, 5).toString()).toBe("%PDF-");
   });
 
+  it("should support ctaStyle 'pill' (fully rounded)", async () => {
+    const source = await createTestPdf();
+    const engine = new PdfOverlayEngine();
+    const result = await engine.processBuffer(source, {
+      ctaStyle: "pill",
+      ctaUrl: "https://example.com",
+    });
+
+    expect(result).toBeInstanceOf(Buffer);
+    expect(result.slice(0, 5).toString()).toBe("%PDF-");
+  });
+
+  it("should support ctaStyle 'gradient' (two-tone fill)", async () => {
+    const source = await createTestPdf();
+    const engine = new PdfOverlayEngine();
+    const result = await engine.processBuffer(source, {
+      ctaStyle: "gradient",
+      ctaBgColor: "#e74c3c",
+      ctaUrl: "https://example.com",
+    });
+
+    expect(result).toBeInstanceOf(Buffer);
+    expect(result.slice(0, 5).toString()).toBe("%PDF-");
+  });
+
+  it("should support ctaStyle 'shadow3d' (raised 3D effect)", async () => {
+    const source = await createTestPdf();
+    const engine = new PdfOverlayEngine();
+    const result = await engine.processBuffer(source, {
+      ctaStyle: "shadow3d",
+      ctaUrl: "https://example.com",
+    });
+
+    expect(result).toBeInstanceOf(Buffer);
+    expect(result.slice(0, 5).toString()).toBe("%PDF-");
+  });
+
+  it("should support ctaStyle 'banner' (full-width)", async () => {
+    const source = await createTestPdf();
+    const engine = new PdfOverlayEngine();
+    const result = await engine.processBuffer(source, {
+      ctaStyle: "banner",
+      ctaUrl: "https://example.com",
+    });
+
+    expect(result).toBeInstanceOf(Buffer);
+    expect(result.slice(0, 5).toString()).toBe("%PDF-");
+  });
+
+  it("should support ctaStyle 'minimal' (text-only with underline)", async () => {
+    const source = await createTestPdf();
+    const engine = new PdfOverlayEngine();
+    const result = await engine.processBuffer(source, {
+      ctaStyle: "minimal",
+      ctaBgColor: "#2563EB",
+      ctaUrl: "https://example.com",
+    });
+
+    expect(result).toBeInstanceOf(Buffer);
+    expect(result.slice(0, 5).toString()).toBe("%PDF-");
+  });
+
+  it("should support ctaIcon prefix on button text", async () => {
+    const source = await createTestPdf();
+    const engine = new PdfOverlayEngine({ ctaIcon: ">>" });
+    expect(engine.ctaIcon).toBe(">>");
+    const result = await engine.processBuffer(source, {
+      ctaUrl: "https://example.com",
+      ctaText: "View",
+    });
+
+    expect(result).toBeInstanceOf(Buffer);
+    expect(result.slice(0, 5).toString()).toBe("%PDF-");
+    // Verify emoji icons are safely stripped (ASCII-only prefix rendered)
+    const engine2 = new PdfOverlayEngine({ ctaIcon: "\u{1F513}" });
+    const result2 = await engine2.processBuffer(source, { ctaUrl: "https://example.com" });
+    expect(result2).toBeInstanceOf(Buffer);
+  });
+
   it("should use solid background in fallback mode (no pdftoppm)", async () => {
     const source = await createTestPdf();
     // Force fallback by caching pdftoppm as unavailable

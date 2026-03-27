@@ -449,6 +449,11 @@
               <option value="rounded" selected>🔵 Rounded</option>
               <option value="square">⬜ Square</option>
               <option value="outline">⭕ Outline</option>
+              <option value="pill">💊 Pill</option>
+              <option value="gradient">🌈 Gradient</option>
+              <option value="shadow3d">🎯 3D Shadow</option>
+              <option value="banner">📢 Banner (Full Width)</option>
+              <option value="minimal">✨ Minimal (Text Only)</option>
             </select>
           </div>
           <div>
@@ -458,6 +463,20 @@
           <div>
             <label for="ctaTextColor">Text Color</label>
             <input type="color" id="ctaTextColor" value="#FFFFFF" style="height: 38px; padding: 2px;">
+          </div>
+          <div>
+            <label for="ctaIcon">Icon Prefix</label>
+            <select id="ctaIcon">
+              <option value="" selected>None</option>
+              <option value=">>">&#x226B; Arrow (>>)</option>
+              <option value="[>]">[>] Play</option>
+              <option value="*">&#x2217; Star (*)</option>
+              <option value="+">+ Plus</option>
+              <option value="(i)">(i) Info</option>
+              <option value="(!)">(!) Alert</option>
+              <option value="->">-> Right Arrow</option>
+              <option value="#"># Hash</option>
+            </select>
           </div>
         </div>
 
@@ -984,6 +1003,8 @@
         formData.append("ctaFontSize", document.getElementById("ctaFontSize").value);
         formData.append("ctaBorderRadius", document.getElementById("ctaBorderRadius").value);
         formData.append("ctaStyle", document.getElementById("ctaStyle").value);
+        const ctaIcon = document.getElementById("ctaIcon").value;
+        if (ctaIcon) formData.append("ctaIcon", ctaIcon);
       }
 
       // DPI

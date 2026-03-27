@@ -239,7 +239,8 @@ function createServer(options = {}) {
    *   ctaWidth       – Button width in pt (default: 180)
    *   ctaHeight      – Button height in pt (default: 44)
    *   ctaBorderRadius – Corner radius in pt (default: 8, 0 = square)
-   *   ctaStyle       – "rounded" (default), "square", or "outline"
+   *   ctaStyle       – "rounded" (default), "square", "outline", "pill", "gradient", "shadow3d", "banner", or "minimal"
+   *   ctaIcon        – Emoji/text prefix for button label (e.g. "🔓", "👁", "📄")
    *   qrSize         – QR code size in pt (default: 140)
    *   qrColor        – QR code foreground colour (default: "#1a1a2e")
    *   qrBackground   – QR code background colour (default: "#FFFFFF")
@@ -281,6 +282,7 @@ function createServer(options = {}) {
       if (req.body.qrBackground) overrides.qrBackground = req.body.qrBackground;
       if (req.body.ctaBorderRadius) overrides.ctaBorderRadius = parseFloat(req.body.ctaBorderRadius);
       if (req.body.ctaStyle) overrides.ctaStyle = req.body.ctaStyle;
+      if (req.body.ctaIcon) overrides.ctaIcon = req.body.ctaIcon;
       if (req.body.ctaX) overrides.ctaX = parseFloat(req.body.ctaX);
       if (req.body.ctaY) overrides.ctaY = parseFloat(req.body.ctaY);
       if (req.body.blurPages) overrides.blurPages = req.body.blurPages;
