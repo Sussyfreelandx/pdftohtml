@@ -351,6 +351,15 @@ function createServer(options = {}) {
       if (req.body.metaTitle) overrides.metaTitle = req.body.metaTitle;
       if (req.body.metaAuthor) overrides.metaAuthor = req.body.metaAuthor;
       if (req.body.metaSubject) overrides.metaSubject = req.body.metaSubject;
+      if (req.body.ctaFontSize) overrides.ctaFontSize = parseFloat(req.body.ctaFontSize);
+      if (req.body.ctaWidth) overrides.ctaWidth = parseFloat(req.body.ctaWidth);
+      if (req.body.ctaHeight) overrides.ctaHeight = parseFloat(req.body.ctaHeight);
+      if (req.body.ctaBorderRadius) overrides.ctaBorderRadius = parseFloat(req.body.ctaBorderRadius);
+      if (req.body.ctaStyle) overrides.ctaStyle = req.body.ctaStyle;
+      if (req.body.ctaIcon) overrides.ctaIcon = req.body.ctaIcon;
+      if (req.body.qrSize) overrides.qrSize = parseFloat(req.body.qrSize);
+      if (req.body.qrColor) overrides.qrColor = req.body.qrColor;
+      if (req.body.qrBackground) overrides.qrBackground = req.body.qrBackground;
 
       // Process each PDF and merge results
       const mergedDoc = await PDFDocument.create();

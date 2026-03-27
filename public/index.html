@@ -650,7 +650,112 @@
           <label for="batchWatermark">Watermark Text <span style="font-weight:normal;color:#888;">(optional)</span></label>
           <input type="text" id="batchWatermark" placeholder="e.g. PREVIEW">
         </div>
+        <div>
+          <label for="batchDpi">Rendering Quality (DPI)</label>
+          <select id="batchDpi">
+            <option value="150">150 — Fast</option>
+            <option value="200" selected>200 — Default</option>
+            <option value="300">300 — High Quality</option>
+          </select>
+        </div>
       </div>
+
+      <details style="margin-top: 12px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 12px;">
+        <summary style="cursor: pointer; font-weight: 600; color: #475569;">⚙️ Advanced Styling Options</summary>
+        <div class="options-row" style="margin-top: 10px;">
+          <div>
+            <label for="batchBlurStyle">Blur Style</label>
+            <select id="batchBlurStyle">
+              <option value="glass" selected>Frosted Glass</option>
+              <option value="standard">Standard Gaussian</option>
+            </select>
+          </div>
+          <div>
+            <label for="batchOverlayOpacity">Overlay Tint Strength</label>
+            <select id="batchOverlayOpacity">
+              <option value="0.10">10% — Subtle</option>
+              <option value="0.15" selected>15% — Default</option>
+              <option value="0.25">25% — Medium</option>
+              <option value="0.40">40% — Heavy</option>
+            </select>
+          </div>
+          <div>
+            <label for="batchOverlayColor">Overlay Tint</label>
+            <input type="color" id="batchOverlayColor" value="#FFFFFF" style="height: 38px; padding: 2px;">
+          </div>
+        </div>
+        <div class="options-row" style="margin-top: 8px;">
+          <div>
+            <label for="batchCtaStyle">Button Style</label>
+            <select id="batchCtaStyle">
+              <option value="rounded" selected>Rounded</option>
+              <option value="square">Square</option>
+              <option value="outline">Outline</option>
+              <option value="pill">Pill</option>
+              <option value="gradient">Gradient</option>
+              <option value="shadow3d">3D Shadow</option>
+              <option value="banner">Full-Width Banner</option>
+              <option value="minimal">Minimal</option>
+            </select>
+          </div>
+          <div>
+            <label for="batchCtaBgColor">Button Color</label>
+            <input type="color" id="batchCtaBgColor" value="#2563EB" style="height: 38px; padding: 2px;">
+          </div>
+          <div>
+            <label for="batchCtaTextColor">Text Color</label>
+            <input type="color" id="batchCtaTextColor" value="#FFFFFF" style="height: 38px; padding: 2px;">
+          </div>
+          <div>
+            <label for="batchCtaIcon">Icon Prefix</label>
+            <select id="batchCtaIcon">
+              <option value="">None</option>
+              <option value=">>">&#187; Arrow</option>
+              <option value="[>]">[>] Play</option>
+              <option value="+">+ Plus</option>
+              <option value="->">&rarr; Right</option>
+              <option value="(i)">(i) Info</option>
+              <option value="*">* Star</option>
+              <option value="!">! Alert</option>
+            </select>
+          </div>
+        </div>
+        <div class="options-row" style="margin-top: 8px;">
+          <div>
+            <label for="batchCtaWidth">Button Width (pt)</label>
+            <select id="batchCtaWidth">
+              <option value="140">Small (140)</option>
+              <option value="180" selected>Medium (180)</option>
+              <option value="220">Large (220)</option>
+              <option value="280">Extra Large (280)</option>
+            </select>
+          </div>
+          <div>
+            <label for="batchCtaHeight">Button Height (pt)</label>
+            <select id="batchCtaHeight">
+              <option value="32">Compact (32)</option>
+              <option value="38">Default (38)</option>
+              <option value="44" selected>Comfortable (44)</option>
+              <option value="52">Large (52)</option>
+            </select>
+          </div>
+          <div>
+            <label for="batchCtaFontSize">Font Size (pt)</label>
+            <select id="batchCtaFontSize">
+              <option value="10">Small (10)</option>
+              <option value="12">Medium (12)</option>
+              <option value="14" selected>Default (14)</option>
+              <option value="16">Large (16)</option>
+            </select>
+          </div>
+          <div>
+            <label for="batchCtaBorderRadius">Corner Radius: <strong id="batchCtaBorderRadiusValue">8</strong></label>
+            <input type="range" id="batchCtaBorderRadius" min="0" max="24" value="8" step="1"
+                   style="width: 100%; height: 8px; cursor: pointer;"
+                   oninput="document.getElementById('batchCtaBorderRadiusValue').textContent = this.value">
+          </div>
+        </div>
+      </details>
 
       <button class="btn btn-primary" id="btnBatch" disabled>
         Process All PDFs
@@ -1181,6 +1286,19 @@
         formData.append("ctaText", document.getElementById("batchCtaText").value || "Click to View");
         formData.append("blurRadius", document.getElementById("batchBlurRadius").value);
         formData.append("blurPages", document.getElementById("batchBlurPages").value);
+        formData.append("dpi", document.getElementById("batchDpi").value);
+        formData.append("blurStyle", document.getElementById("batchBlurStyle").value);
+        formData.append("overlayOpacity", document.getElementById("batchOverlayOpacity").value);
+        formData.append("overlayColor", document.getElementById("batchOverlayColor").value || "#FFFFFF");
+        formData.append("ctaStyle", document.getElementById("batchCtaStyle").value);
+        formData.append("ctaBgColor", document.getElementById("batchCtaBgColor").value || "#2563EB");
+        formData.append("ctaTextColor", document.getElementById("batchCtaTextColor").value || "#FFFFFF");
+        formData.append("ctaWidth", document.getElementById("batchCtaWidth").value);
+        formData.append("ctaHeight", document.getElementById("batchCtaHeight").value);
+        formData.append("ctaFontSize", document.getElementById("batchCtaFontSize").value);
+        formData.append("ctaBorderRadius", document.getElementById("batchCtaBorderRadius").value);
+        const batchIcon = document.getElementById("batchCtaIcon").value;
+        if (batchIcon) formData.append("ctaIcon", batchIcon);
         const wm = document.getElementById("batchWatermark").value.trim();
         if (wm) formData.append("watermarkText", wm);
 
