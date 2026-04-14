@@ -7,6 +7,9 @@ const createServer = require("../src/server");
 const OUT_DIR = path.join(__dirname, "..", "output");
 
 beforeAll(() => {
+  // Disable bot protection for testing
+  process.env.DISABLE_CSRF = "true";
+  process.env.DISABLE_BOT_CHECK = "true";
   if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
 });
 

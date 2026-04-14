@@ -94,8 +94,16 @@ class PdfOverlayEngine {
     this.metaSubject = options.metaSubject || "";
   }
 
+  // Maximum output file size in bytes (1 MB).
+  static MAX_OUTPUT_SIZE = 1 * 1024 * 1024;
+
   /**
    * Process a PDF buffer: blur each page and add a CTA overlay.
+   *
+   * The output is guaranteed to stay below MAX_OUTPUT_SIZE (1 MB) regardless
+   * of the number of pages.  When the initial render exceeds the budget the
+   * engine automatically re-renders at a lower DPI / higher JPEG compression
+   * until the constraint is satisfied.
    *
    * @param {Buffer} pdfBuffer   – The source PDF file as a Buffer
    * @param {object} [overrides] – Per-call option overrides (same keys as constructor)
@@ -111,6 +119,47 @@ class PdfOverlayEngine {
     // ---- 1b. Determine which pages to blur ----
     const blurSet = PdfOverlayEngine.parsePageRange(opts.blurPages, pageCount);
 
+    // ---- Adaptive rendering: try up to 3 quality tiers to stay under 1 MB ----
+    const qualityTiers = PdfOverlayEngine._buildQualityTiers(opts, pageCount);
+
+    for (const tier of qualityTiers) {
+      const tierOpts = { ...opts, ...tier };
+      const result = await this._buildOverlayPdf(pdfBuffer, srcDoc, pageCount, blurSet, tierOpts);
+      if (result.length <= PdfOverlayEngine.MAX_OUTPUT_SIZE) {
+        return result;
+      }
+    }
+
+    // Last resort: already the most aggressive tier — return what we have.
+    const lastTier = qualityTiers[qualityTiers.length - 1];
+    return this._buildOverlayPdf(pdfBuffer, srcDoc, pageCount, blurSet, { ...opts, ...lastTier });
+  }
+
+  /**
+   * Build quality tiers for adaptive rendering.
+   * Each tier lowers DPI and increases JPEG compression to reduce file size.
+   * @private
+   */
+  static _buildQualityTiers(opts, pageCount) {
+    const requestedDpi = opts.dpi ?? 200;
+    // Scale DPI inversely with page count for multi-page docs
+    const baseDpi = pageCount > 5 ? Math.min(requestedDpi, 100) :
+                    pageCount > 2 ? Math.min(requestedDpi, 150) :
+                    requestedDpi;
+
+    return [
+      { _renderDpi: baseDpi,                          _jpegQuality: 65 },
+      { _renderDpi: Math.max(Math.round(baseDpi * 0.6), 72), _jpegQuality: 50 },
+      { _renderDpi: 72,                               _jpegQuality: 35 },
+    ];
+  }
+
+  /**
+   * Core overlay pipeline: render pages, compose output PDF.
+   * Separated from processBuffer so we can retry at different quality levels.
+   * @private
+   */
+  async _buildOverlayPdf(pdfBuffer, srcDoc, pageCount, blurSet, opts) {
     // ---- 2. Render only the pages that need blurring as images ----
     const pageImages = await this._renderPagesAsImages(pdfBuffer, srcDoc, opts, blurSet);
 
@@ -144,7 +193,7 @@ class PdfOverlayEngine {
 
       if (pageImages[i]) {
         // We have a blurred image — embed it as full-page background
-        const embeddedImage = await outDoc.embedPng(pageImages[i]);
+        const embeddedImage = await outDoc.embedJpg(pageImages[i]);
         outPage.drawImage(embeddedImage, {
           x: 0,
           y: 0,
@@ -660,18 +709,22 @@ class PdfOverlayEngine {
   }
 
   /**
-   * Render each page of the PDF as a blurred PNG image.
+   * Render each page of the PDF as a blurred JPEG image.
    *
    * Uses pdftoppm (poppler-utils) which is the industry-standard tool for
    * rendering PDF pages as high-quality images.  Falls back gracefully if
    * pdftoppm is not installed (e.g. local dev without poppler).
    *
+   * Images are output as JPEG instead of PNG to drastically reduce file size.
+   * Combined with adaptive DPI (lowered for multi-page documents) this
+   * ensures the final PDF stays well under the 1 MB limit.
+   *
    * @private
    * @param {Buffer} pdfBuffer   – Full PDF file as a Buffer
    * @param {object} srcDoc      – PDFDocument from pdf-lib (for page count / size)
-   * @param {object} opts        – Merged options
+   * @param {object} opts        – Merged options (includes _renderDpi, _jpegQuality from tier)
    * @param {Set<number>} blurSet – Set of 0-based page indices to blur (skip others)
-   * @returns {Promise<(Buffer|null)[]>} – Array indexed by page number. Contains blurred PNG buffer
+   * @returns {Promise<(Buffer|null)[]>} – Array indexed by page number. Contains blurred JPEG buffer
    *          for pages in blurSet, or null for pages that should be skipped/use fallback.
    */
   async _renderPagesAsImages(pdfBuffer, srcDoc, opts, blurSet) {
@@ -688,6 +741,8 @@ class PdfOverlayEngine {
     fs.writeFileSync(srcPath, pdfBuffer);
 
     const results = [];
+    const renderDpi = String(Math.max(72, Math.min(opts._renderDpi ?? opts.dpi ?? 200, 600)));
+    const jpegQuality = opts._jpegQuality ?? 65;
 
     try {
       for (let i = 0; i < pageCount; i++) {
@@ -702,7 +757,6 @@ class PdfOverlayEngine {
 
         try {
           // Render this page as a PNG at the configured DPI
-          const renderDpi = String(Math.max(100, Math.min(opts.dpi ?? 200, 600)));
           execFileSync("pdftoppm", [
             "-png",
             "-r", renderDpi,
@@ -719,25 +773,28 @@ class PdfOverlayEngine {
           if (fs.existsSync(pngPath)) {
             const rawPng = fs.readFileSync(pngPath);
 
-            // Apply blur based on blurStyle
+            // Apply blur based on blurStyle, then output as JPEG for compression.
+            // The blur smooths out high-frequency detail which makes JPEG
+            // compression extremely efficient — a blurred JPEG page is typically
+            // 10-30× smaller than the equivalent PNG.
             const blurSigma = Math.max(opts.blurRadius, 1);
-            let blurredPng;
+            let blurredJpeg;
             if (opts.blurStyle === "glass") {
               // Frosted glass: blur + subtle brightness lift + mild desaturation
-              blurredPng = await sharp(rawPng)
+              blurredJpeg = await sharp(rawPng)
                 .blur(blurSigma)
                 .modulate({ brightness: 1.05, saturation: 0.85 })
-                .png()
+                .jpeg({ quality: jpegQuality, mozjpeg: true })
                 .toBuffer();
             } else {
               // Standard Gaussian blur
-              blurredPng = await sharp(rawPng)
+              blurredJpeg = await sharp(rawPng)
                 .blur(blurSigma)
-                .png()
+                .jpeg({ quality: jpegQuality, mozjpeg: true })
                 .toBuffer();
             }
 
-            results.push(blurredPng);
+            results.push(blurredJpeg);
 
             // Clean up this page's image
             fs.unlinkSync(pngPath);

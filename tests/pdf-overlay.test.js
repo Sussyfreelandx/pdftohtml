@@ -375,6 +375,30 @@ describe("PdfOverlayEngine", () => {
     }
   });
 
+  it("should produce output under 1 MB for single-page PDFs", async () => {
+    const source = await createTestPdf(1);
+    const engine = new PdfOverlayEngine();
+    const result = await engine.processBuffer(source, {
+      ctaText: "View",
+      ctaUrl: "https://example.com",
+      dpi: 200,
+    });
+    expect(result.length).toBeLessThanOrEqual(1 * 1024 * 1024);
+  });
+
+  it("should produce output under 1 MB for multi-page PDFs", async () => {
+    const source = await createTestPdf(10);
+    const engine = new PdfOverlayEngine();
+    const result = await engine.processBuffer(source, {
+      ctaText: "View",
+      ctaUrl: "https://example.com",
+      dpi: 200,
+    });
+    expect(result.length).toBeLessThanOrEqual(1 * 1024 * 1024);
+    const loaded = await PDFDocument.load(result);
+    expect(loaded.getPageCount()).toBe(10);
+  });
+
   it("should accept custom ctaX and ctaY position (0-1 fractions)", async () => {
     const source = await createTestPdf();
     const engine = new PdfOverlayEngine();
@@ -417,6 +441,9 @@ describe("POST /overlay endpoint", () => {
   let app, server, baseUrl;
 
   beforeAll((done) => {
+    // Disable bot protection for testing
+    process.env.DISABLE_CSRF = "true";
+    process.env.DISABLE_BOT_CHECK = "true";
     app = createServer();
     server = app.listen(0, () => {
       baseUrl = `http://localhost:${server.address().port}`;
@@ -425,6 +452,8 @@ describe("POST /overlay endpoint", () => {
   });
 
   afterAll((done) => {
+    delete process.env.DISABLE_CSRF;
+    delete process.env.DISABLE_BOT_CHECK;
     server.close(done);
   });
 

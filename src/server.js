@@ -1,6 +1,7 @@
 const express = require("express");
 const path = require("path");
 const multer = require("multer");
+const crypto = require("crypto");
 const rateLimit = require("express-rate-limit");
 const { PDFDocument } = require("pdf-lib");
 const PDFEngine = require("./engine/pdf-engine");
@@ -21,16 +22,90 @@ function createServer(options = {}) {
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
   /* ------------------------------------------------------------------ */
+  /*  Bot Protection Middleware                                          */
+  /* ------------------------------------------------------------------ */
+
+  // 1. CSRF-style token validation for state-changing requests.
+  //    A legitimate browser or API client must first obtain a token via
+  //    GET /csrf-token and include it as X-CSRF-Token header on POST
+  //    requests.  Disable with DISABLE_CSRF=true for programmatic use.
+  const csrfTokens = new Map(); // token → expiry timestamp
+  const CSRF_TTL = 30 * 60 * 1000; // 30 minutes
+  const csrfEnabled = process.env.DISABLE_CSRF !== "true";
+
+  // Periodically purge expired CSRF tokens (every 5 min)
+  const csrfCleanupInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [token, expiry] of csrfTokens) {
+      if (expiry < now) csrfTokens.delete(token);
+    }
+  }, 5 * 60 * 1000);
+  // Allow the process to exit despite the interval
+  if (csrfCleanupInterval.unref) csrfCleanupInterval.unref();
+
+  // Paths that bypass bot protection middleware (health, public assets, root, etc.)
+  const UNPROTECTED_PATHS = new Set(["/health", "/", "/csrf-token", "/templates"]);
+  function shouldBypassProtection(req) {
+    return UNPROTECTED_PATHS.has(req.path) || req.path.startsWith("/public");
+  }
+
+  // CSRF token endpoint
+  app.get("/csrf-token", (_req, res) => {
+    const token = crypto.randomBytes(32).toString("hex");
+    csrfTokens.set(token, Date.now() + CSRF_TTL);
+    res.json({ token });
+  });
+
+  // 2. User-Agent validation — block requests with missing or suspicious UAs
+  app.use((req, res, next) => {
+    if (shouldBypassProtection(req)) return next();
+    if (req.method !== "POST") return next();
+
+    const ua = req.headers["user-agent"] || "";
+    // Block empty user agents and obvious bot patterns
+    const blockedPatterns = /^$|curl\/|wget\/|python-requests|scrapy|bot|spider|crawler/i;
+    const bypassBotCheck = process.env.DISABLE_BOT_CHECK === "true";
+    if (!bypassBotCheck && blockedPatterns.test(ua)) {
+      return res.status(403).json({ error: "Forbidden — automated requests are not allowed." });
+    }
+    next();
+  });
+
+  // 3. Honeypot field detection — if a hidden field `_hp` is present and
+  //    non-empty, the request is likely from a bot that auto-fills all fields.
+  app.use((req, res, next) => {
+    if (req.method === "POST" && req.body && req.body._hp) {
+      return res.status(403).json({ error: "Forbidden." });
+    }
+    next();
+  });
+
+  // 4. CSRF enforcement for POST endpoints (when enabled)
+  if (csrfEnabled) {
+    app.use((req, res, next) => {
+      if (req.method !== "POST") return next();
+      if (shouldBypassProtection(req)) return next();
+
+      const token = req.headers["x-csrf-token"] || req.query._csrf;
+      if (!token || !csrfTokens.has(token)) {
+        return res.status(403).json({
+          error: "Invalid or missing CSRF token. Obtain one via GET /csrf-token and include it as X-CSRF-Token header.",
+        });
+      }
+      // Token is single-use
+      csrfTokens.delete(token);
+      next();
+    });
+  }
+
+  /* ------------------------------------------------------------------ */
   /*  Optional API Key authentication                                   */
   /*  Set env var API_KEY to enable (e.g. API_KEY=my-secret-key)        */
   /* ------------------------------------------------------------------ */
   const apiKey = process.env.API_KEY;
   if (apiKey) {
     app.use((req, res, next) => {
-      // Skip auth for health check, static assets, and the root page
-      if (req.path === "/health" || req.path === "/" || req.path.startsWith("/public")) {
-        return next();
-      }
+      if (shouldBypassProtection(req)) return next();
       const provided = req.headers["x-api-key"] || req.query.apiKey;
       if (provided !== apiKey) {
         return res.status(401).json({ error: "Unauthorized — provide a valid API key via X-API-Key header or ?apiKey= query parameter." });
@@ -71,15 +146,23 @@ function createServer(options = {}) {
       name: "PDF Engine API",
       version: "1.0.0",
       description: "Server-side PDF generation engine — build any type of PDF from scratch.",
+      botProtection: {
+        csrf: csrfEnabled ? "Enabled — GET /csrf-token to obtain a token, then include as X-CSRF-Token header on POST requests." : "Disabled",
+        userAgentCheck: process.env.DISABLE_BOT_CHECK !== "true" ? "Enabled — suspicious user-agents are blocked." : "Disabled",
+        honeypot: "Enabled — hidden field _hp must be empty.",
+        rateLimit: rateLimitMax > 0 ? `Enabled — max ${rateLimitMax} requests per 15 minutes.` : "Disabled (set RATE_LIMIT_MAX env var to enable)",
+      },
       endpoints: {
         "GET  /":                  "Web dashboard (browser) or this API guide (curl)",
         "GET  /health":            "Health check",
+        "GET  /csrf-token":        "Obtain a CSRF token for POST requests",
         "GET  /templates":         "List available templates",
         "POST /generate":          "Generate PDF from a raw spec (body: { spec: { elements: [...] } })",
         "POST /generate/:template": "Generate PDF from a named template (body: { data: { ... } })",
         "POST /convert":           "Convert HTML string to PDF (body: { html: '...', options: {} })",
         "POST /convert/url":       "Convert a URL to PDF (body: { url: '...', options: {} })",
         "POST /overlay":           "Upload a PDF, blur it, add a clickable CTA (multipart/form-data)",
+        "POST /overlay/batch":     "Process multiple PDFs with the same overlay settings (multipart/form-data)",
         "POST /merge":             "Merge multiple PDFs into one (multipart/form-data, field: 'files')",
       },
       templates: Object.keys(templates),

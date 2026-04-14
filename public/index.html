@@ -881,6 +881,40 @@
       el.innerHTML = "";
     }
 
+    // ---- CSRF Token Helper ----
+    // All POST requests must include a CSRF token for bot protection.
+    async function getCsrfToken() {
+      try {
+        const res = await fetch("/csrf-token");
+        const data = await res.json();
+        return data.token;
+      } catch (_) {
+        return "";
+      }
+    }
+    // Wrapper: fetch with auto-CSRF for JSON POST requests
+    async function secureFetch(url, opts = {}) {
+      if (opts.method === "POST") {
+        const token = await getCsrfToken();
+        if (!opts.headers) opts.headers = {};
+        if (typeof opts.headers.set === "function") {
+          // Headers object (for FormData)
+        } else {
+          opts.headers["X-CSRF-Token"] = token;
+        }
+      }
+      return fetch(url, opts);
+    }
+    // Wrapper: fetch with auto-CSRF for FormData POST requests
+    async function secureFetchForm(url, formData) {
+      const token = await getCsrfToken();
+      return fetch(url, {
+        method: "POST",
+        headers: { "X-CSRF-Token": token },
+        body: formData,
+      });
+    }
+
     // ---- Pages to Blur preset handler ----
     function handleBlurPagesPreset() {
       const preset = document.getElementById("blurPagesPreset").value;
@@ -932,7 +966,7 @@
 
       try {
         const htmlContent = await selectedFile.text();
-        const res = await fetch("/convert", {
+        const res = await secureFetch("/convert", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -965,7 +999,7 @@
       setStatus("statusUrl", "info", '<span class="spinner"></span> Navigating to URL and generating PDF…');
 
       try {
-        const res = await fetch("/convert/url", {
+        const res = await secureFetch("/convert/url", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1033,7 +1067,7 @@
         const formData = buildOverlayFormData();
         formData.append("preview", "true");  // Request inline display
 
-        const res = await fetch("/overlay?preview=true", { method: "POST", body: formData });
+        const res = await secureFetchForm("/overlay?preview=true", formData);
         if (!res.ok) {
           const err = await res.json().catch(() => ({ error: res.statusText }));
           throw new Error(err.error || "Server error");
@@ -1216,7 +1250,7 @@
       try {
         // Re-generate with the custom CTA position
         const formData = buildOverlayFormData(ctaPosition.x, ctaPosition.y);
-        const res = await fetch("/overlay", { method: "POST", body: formData });
+        const res = await secureFetchForm("/overlay", formData);
         if (!res.ok) {
           const err = await res.json().catch(() => ({ error: res.statusText }));
           throw new Error(err.error || "Server error");
@@ -1302,7 +1336,7 @@
         const wm = document.getElementById("batchWatermark").value.trim();
         if (wm) formData.append("watermarkText", wm);
 
-        const res = await fetch("/overlay/batch", { method: "POST", body: formData });
+        const res = await secureFetchForm("/overlay/batch", formData);
         if (!res.ok) {
           const err = await res.json().catch(() => ({ error: res.statusText }));
           throw new Error(err.error || "Server error");
@@ -1358,7 +1392,7 @@
         }
         formData.append("filename", document.getElementById("mergeFilename").value || "merged.pdf");
 
-        const res = await fetch("/merge", { method: "POST", body: formData });
+        const res = await secureFetchForm("/merge", formData);
         if (!res.ok) {
           const err = await res.json().catch(() => ({ error: res.statusText }));
           throw new Error(err.error || "Server error");
@@ -1465,7 +1499,7 @@
       setStatus("statusTemplate", "info", '<span class="spinner"></span> Generating ' + template + ' PDF…');
 
       try {
-        const res = await fetch("/generate/" + template, {
+        const res = await secureFetch("/generate/" + template, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ data }),
@@ -1496,7 +1530,7 @@
       setStatus("statusSpec", "info", '<span class="spinner"></span> Generating PDF from spec…');
 
       try {
-        const res = await fetch("/generate", {
+        const res = await secureFetch("/generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ spec }),

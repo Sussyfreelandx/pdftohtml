@@ -5,6 +5,9 @@ describe("PDF Server API", () => {
   let app, server, baseUrl;
 
   beforeAll((done) => {
+    // Disable bot protection checks for testing
+    process.env.DISABLE_CSRF = "true";
+    process.env.DISABLE_BOT_CHECK = "true";
     app = createServer();
     server = app.listen(0, () => {
       const port = server.address().port;
@@ -14,6 +17,8 @@ describe("PDF Server API", () => {
   });
 
   afterAll((done) => {
+    delete process.env.DISABLE_CSRF;
+    delete process.env.DISABLE_BOT_CHECK;
     server.close(done);
   });
 
@@ -170,5 +175,129 @@ describe("PDF Server API", () => {
   test("POST /overlay/batch returns 400 when no files uploaded", async () => {
     const res = await request("POST", "/overlay/batch", {});
     expect(res.status).toBe(400);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Bot Protection Tests                                               */
+/* ------------------------------------------------------------------ */
+
+describe("Bot Protection", () => {
+  let app, server, baseUrl;
+
+  beforeAll((done) => {
+    // Enable all bot protection for these tests
+    delete process.env.DISABLE_CSRF;
+    delete process.env.DISABLE_BOT_CHECK;
+    app = createServer();
+    server = app.listen(0, () => {
+      const port = server.address().port;
+      baseUrl = `http://localhost:${port}`;
+      done();
+    });
+  });
+
+  afterAll((done) => {
+    server.close(done);
+  });
+
+  function request(method, urlPath, body, extraHeaders = {}) {
+    return new Promise((resolve, reject) => {
+      const url = new URL(urlPath, baseUrl);
+      const data = body ? JSON.stringify(body) : undefined;
+      const opts = {
+        method,
+        hostname: url.hostname,
+        port: url.port,
+        path: url.pathname,
+        headers: { "Content-Type": "application/json", ...extraHeaders },
+      };
+      const req = http.request(opts, (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => {
+          resolve({
+            status: res.statusCode,
+            headers: res.headers,
+            body: Buffer.concat(chunks),
+          });
+        });
+      });
+      req.on("error", reject);
+      if (data) req.write(data);
+      req.end();
+    });
+  }
+
+  test("GET /csrf-token returns a token", async () => {
+    const res = await request("GET", "/csrf-token");
+    expect(res.status).toBe(200);
+    const json = JSON.parse(res.body.toString());
+    expect(json.token).toBeDefined();
+    expect(json.token.length).toBe(64); // 32 bytes hex
+  });
+
+  test("POST without CSRF token is rejected (403)", async () => {
+    const res = await request("POST", "/generate", {
+      spec: { elements: [{ type: "text", value: "test" }] },
+    }, { "User-Agent": "Mozilla/5.0 TestBrowser" });
+    expect(res.status).toBe(403);
+    const json = JSON.parse(res.body.toString());
+    expect(json.error).toMatch(/CSRF/i);
+  });
+
+  test("POST with valid CSRF token succeeds", async () => {
+    // Get token
+    const tokenRes = await request("GET", "/csrf-token");
+    const { token } = JSON.parse(tokenRes.body.toString());
+
+    // Use it
+    const res = await request("POST", "/generate", {
+      spec: { elements: [{ type: "text", value: "test" }] },
+    }, { "X-CSRF-Token": token, "User-Agent": "Mozilla/5.0 TestBrowser" });
+    expect(res.status).toBe(200);
+  });
+
+  test("CSRF token is single-use", async () => {
+    const tokenRes = await request("GET", "/csrf-token");
+    const { token } = JSON.parse(tokenRes.body.toString());
+
+    // First use succeeds
+    const res1 = await request("POST", "/generate", {
+      spec: { elements: [{ type: "text", value: "test" }] },
+    }, { "X-CSRF-Token": token, "User-Agent": "Mozilla/5.0 TestBrowser" });
+    expect(res1.status).toBe(200);
+
+    // Second use fails
+    const res2 = await request("POST", "/generate", {
+      spec: { elements: [{ type: "text", value: "test" }] },
+    }, { "X-CSRF-Token": token, "User-Agent": "Mozilla/5.0 TestBrowser" });
+    expect(res2.status).toBe(403);
+  });
+
+  test("honeypot field _hp triggers 403", async () => {
+    const tokenRes = await request("GET", "/csrf-token");
+    const { token } = JSON.parse(tokenRes.body.toString());
+
+    const res = await request("POST", "/generate", {
+      spec: { elements: [{ type: "text", value: "test" }] },
+      _hp: "bot-filled-this",
+    }, { "X-CSRF-Token": token, "User-Agent": "Mozilla/5.0 TestBrowser" });
+    expect(res.status).toBe(403);
+  });
+
+  test("suspicious user-agent is blocked", async () => {
+    const tokenRes = await request("GET", "/csrf-token");
+    const { token } = JSON.parse(tokenRes.body.toString());
+
+    const res = await request("POST", "/generate", {
+      spec: { elements: [{ type: "text", value: "test" }] },
+    }, { "X-CSRF-Token": token, "User-Agent": "python-requests/2.28" });
+    expect(res.status).toBe(403);
+  });
+
+  test("health endpoint bypasses all protections", async () => {
+    const res = await request("GET", "/health");
+    expect(res.status).toBe(200);
   });
 });
