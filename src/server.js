@@ -6,6 +6,7 @@ const rateLimit = require("express-rate-limit");
 const { PDFDocument } = require("pdf-lib");
 const PDFEngine = require("./engine/pdf-engine");
 const HtmlToPdfConverter = require("./engine/html-to-pdf");
+const HtmlToImageConverter = require("./engine/html-to-image");
 const PdfOverlayEngine = require("./engine/pdf-overlay");
 const templates = require("./templates");
 
@@ -161,7 +162,9 @@ function createServer(options = {}) {
         "POST /generate/:template": "Generate PDF from a named template (body: { data: { ... } })",
         "POST /convert":           "Convert HTML string to PDF (body: { html, options: { ctaUrl, ctaSelector, crop: {x,y,width,height} } })",
         "POST /convert/url":       "Convert a URL to PDF (body: { url, options: { ctaUrl, ctaSelector, crop: {x,y,width,height} } })",
-        "POST /overlay":           "Upload a PDF, blur it, add a clickable CTA (multipart/form-data)",
+        "POST /convert/image":     "Convert HTML string to image with interactive hotspot map (body: { html, options })",
+        "POST /convert/image/url": "Convert a URL to image with interactive hotspot map (body: { url, options })",
+        "POST /overlay":           "Upload a PDF, blur it, add a clickable CTA (multipart/form-data). Supports image embed with zoom & floating placement.",
         "POST /overlay/batch":     "Process multiple PDFs with the same overlay settings (multipart/form-data)",
         "POST /merge":             "Merge multiple PDFs into one (multipart/form-data, field: 'files')",
       },
@@ -314,6 +317,95 @@ function createServer(options = {}) {
   });
 
   /* ------------------------------------------------------------------ */
+  /*  HTML-to-Image conversion endpoints                                */
+  /* ------------------------------------------------------------------ */
+
+  const imageConverter = new HtmlToImageConverter(options.imageConverterOptions);
+
+  /**
+   * POST /convert/image
+   * Body: { html: "<html>...</html>", options: { ... } }
+   *
+   * Convert an HTML string into a high-quality screenshot image (PNG/JPEG)
+   * with an interactive hotspot map of button/link positions.
+   *
+   * Response: JSON with base64-encoded image and hotspot array.
+   */
+  app.post("/convert/image", async (req, res) => {
+    try {
+      const html = req.body.html;
+      if (!html) {
+        return res.status(400).json({ error: "Missing 'html' string in request body." });
+      }
+      const opts = req.body.options || {};
+      const result = await imageConverter.convertHtmlToImage(html, opts);
+      const filename = req.body.filename || "screenshot.png";
+
+      // Return as downloadable image if ?download=true, otherwise JSON with hotspot map
+      if (req.query.download === "true" || req.body.download === true) {
+        const mimeType = (opts.format === "jpeg") ? "image/jpeg" : "image/png";
+        res.set({
+          "Content-Type": mimeType,
+          "Content-Disposition": `attachment; filename="${filename}"`,
+          "Content-Length": result.image.length,
+        });
+        res.send(result.image);
+      } else {
+        res.json({
+          image: result.image.toString("base64"),
+          format: opts.format || "png",
+          width: result.width,
+          height: result.height,
+          hotspots: result.hotspots,
+        });
+      }
+    } catch (err) {
+      console.error("HTML-to-image conversion error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * POST /convert/image/url
+   * Body: { url: "https://example.com", options: { ... } }
+   *
+   * Navigate to a URL and convert the rendered page into a screenshot image
+   * with an interactive hotspot map.
+   */
+  app.post("/convert/image/url", async (req, res) => {
+    try {
+      const url = req.body.url;
+      if (!url) {
+        return res.status(400).json({ error: "Missing 'url' string in request body." });
+      }
+      const opts = req.body.options || {};
+      const result = await imageConverter.convertUrlToImage(url, opts);
+      const filename = req.body.filename || "screenshot.png";
+
+      if (req.query.download === "true" || req.body.download === true) {
+        const mimeType = (opts.format === "jpeg") ? "image/jpeg" : "image/png";
+        res.set({
+          "Content-Type": mimeType,
+          "Content-Disposition": `attachment; filename="${filename}"`,
+          "Content-Length": result.image.length,
+        });
+        res.send(result.image);
+      } else {
+        res.json({
+          image: result.image.toString("base64"),
+          format: opts.format || "png",
+          width: result.width,
+          height: result.height,
+          hotspots: result.hotspots,
+        });
+      }
+    } catch (err) {
+      console.error("URL-to-image conversion error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /* ------------------------------------------------------------------ */
   /*  PDF Overlay endpoint (upload PDF → blur + CTA)                    */
   /* ------------------------------------------------------------------ */
 
@@ -356,10 +448,23 @@ function createServer(options = {}) {
    *   metaSubject    – PDF subject metadata
    *   preview        – "true" to return inline PDF (for iframe preview) instead of attachment
    *   filename       – Output filename (default: "overlay.pdf")
+   *
+   * Image Embed fields (optional — embed a floating image into the blurred PDF):
+   *   embedImageFile – An image file (PNG/JPEG) to embed into the PDF
+   *   embedImageZoom – Zoom/scale factor 0.1-1.0 (default: 0.5). Controls image size relative to page width.
+   *   embedImageX    – Horizontal position 0-1 (default: 0.5 = center)
+   *   embedImageY    – Vertical position 0-1 (default: 0.5 = center, 0=bottom, 1=top)
+   *   embedImagePage – Which page: "first" (default), "last", "all", or page number
+   *   embedImageHotspots – JSON string of hotspot regions: [{ x, y, width, height, href }]
+   *   embedImageCtaUrl – URL to inject into button-like hotspots on the embedded image
    */
-  app.post("/overlay", upload.single("file"), async (req, res) => {
+  app.post("/overlay", upload.fields([
+    { name: "file", maxCount: 1 },
+    { name: "embedImageFile", maxCount: 1 },
+  ]), async (req, res) => {
     try {
-      if (!req.file) {
+      const pdfFiles = req.files && req.files["file"];
+      if (!pdfFiles || pdfFiles.length === 0) {
         return res.status(400).json({ error: "Missing PDF file. Upload as 'file' field in multipart/form-data." });
       }
 
@@ -394,7 +499,25 @@ function createServer(options = {}) {
       if (req.body.metaAuthor) overrides.metaAuthor = req.body.metaAuthor;
       if (req.body.metaSubject) overrides.metaSubject = req.body.metaSubject;
 
-      const buffer = await overlayEngine.processBuffer(req.file.buffer, overrides);
+      // Image embed fields
+      const embedImageFiles = req.files && req.files["embedImageFile"];
+      if (embedImageFiles && embedImageFiles.length > 0) {
+        overrides.embedImage = embedImageFiles[0].buffer;
+      }
+      if (req.body.embedImageZoom) overrides.embedImageZoom = parseFloat(req.body.embedImageZoom);
+      if (req.body.embedImageX) overrides.embedImageX = parseFloat(req.body.embedImageX);
+      if (req.body.embedImageY) overrides.embedImageY = parseFloat(req.body.embedImageY);
+      if (req.body.embedImagePage) overrides.embedImagePage = req.body.embedImagePage;
+      if (req.body.embedImageCtaUrl) overrides.embedImageCtaUrl = req.body.embedImageCtaUrl;
+      if (req.body.embedImageHotspots) {
+        try {
+          overrides.embedImageHotspots = JSON.parse(req.body.embedImageHotspots);
+        } catch (_) {
+          console.warn("Invalid embedImageHotspots JSON — ignoring hotspot data");
+        }
+      }
+
+      const buffer = await overlayEngine.processBuffer(pdfFiles[0].buffer, overrides);
 
       // If ?preview=true or preview field is set, return inline (for iframe preview)
       const isPreview = req.query.preview === "true" || req.body.preview === "true";

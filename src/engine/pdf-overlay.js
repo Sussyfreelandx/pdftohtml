@@ -61,6 +61,15 @@ class PdfOverlayEngine {
    * @param {string}  [options.metaTitle]                  – PDF title metadata
    * @param {string}  [options.metaAuthor]                 – PDF author metadata
    * @param {string}  [options.metaSubject]                – PDF subject metadata
+   *
+   * Image Embed options (embed an image into the blurred PDF with floating placement):
+   * @param {Buffer}  [options.embedImage]                 – Image buffer (PNG/JPEG) to embed into the PDF
+   * @param {number}  [options.embedImageZoom=0.5]         – Zoom/scale factor (0.1-1.0). Controls how large the image appears relative to the page width.
+   * @param {number}  [options.embedImageX=0.5]            – Horizontal position (0-1 fraction of page width, 0.5=center)
+   * @param {number}  [options.embedImageY=0.5]            – Vertical position (0-1 fraction of page height, 0=bottom, 1=top, 0.5=center)
+   * @param {string}  [options.embedImagePage="first"]     – Which page: "first", "last", "all", or a page number like "1"
+   * @param {Array}   [options.embedImageHotspots]         – Interactive regions: [{ x, y, width, height, href }] in original image pixels
+   * @param {string}  [options.embedImageCtaUrl]           – URL to inject into all detected button hotspots on the embedded image
    */
   constructor(options = {}) {
     this.blurRadius = options.blurRadius ?? 5;
@@ -92,6 +101,15 @@ class PdfOverlayEngine {
     this.metaTitle = options.metaTitle || "";
     this.metaAuthor = options.metaAuthor || "";
     this.metaSubject = options.metaSubject || "";
+
+    // Image embed defaults
+    this.embedImage = options.embedImage || null;
+    this.embedImageZoom = options.embedImageZoom ?? 0.5;
+    this.embedImageX = options.embedImageX ?? 0.5;
+    this.embedImageY = options.embedImageY ?? 0.5;
+    this.embedImagePage = options.embedImagePage || "first";
+    this.embedImageHotspots = options.embedImageHotspots || [];
+    this.embedImageCtaUrl = options.embedImageCtaUrl || "";
   }
 
   // Maximum output file size in bytes (1 MB).
@@ -247,6 +265,11 @@ class PdfOverlayEngine {
       } else {
         this._drawButtonCta(outDoc, outPage, font, width, height, opts, ctaBgRgb, ctaTextRgb);
       }
+
+      // ---- 7b. Embed floating image (if configured for this page) ----
+      if (opts.embedImage && this._shouldEmbedImageOnPage(opts.embedImagePage, i, pageCount)) {
+        await this._embedFloatingImage(outDoc, outPage, width, height, opts);
+      }
     }
 
     // ---- 8. Set PDF metadata ----
@@ -259,6 +282,162 @@ class PdfOverlayEngine {
     // ---- 9. Save and return ----
     const resultBytes = await outDoc.save();
     return Buffer.from(resultBytes);
+  }
+
+  /**
+   * Determine if the embedded image should appear on a given page.
+   * @private
+   * @param {string} embedPageSpec – "first", "last", "all", or a 1-based page number
+   * @param {number} pageIndex     – 0-based page index
+   * @param {number} pageCount     – Total pages
+   * @returns {boolean}
+   */
+  _shouldEmbedImageOnPage(embedPageSpec, pageIndex, pageCount) {
+    if (!embedPageSpec || embedPageSpec === "first") return pageIndex === 0;
+    if (embedPageSpec === "last") return pageIndex === pageCount - 1;
+    if (embedPageSpec === "all") return true;
+    const num = parseInt(embedPageSpec, 10);
+    if (!isNaN(num) && num >= 1) return pageIndex === num - 1;
+    return pageIndex === 0;
+  }
+
+  /**
+   * Embed a floating image onto a PDF page at the specified position and zoom.
+   *
+   * The image is scaled by embedImageZoom relative to the page width, then
+   * positioned using embedImageX/Y as fractional page coordinates.  The image
+   * "floats" — it does not replace the page content, so the PDF remains
+   * scrollable if it has multiple pages.
+   *
+   * If embedImageHotspots or embedImageCtaUrl is provided, the engine adds
+   * invisible clickable link annotations at the scaled positions of each
+   * hotspot, preserving button interactivity from the original HTML.
+   *
+   * @private
+   */
+  async _embedFloatingImage(outDoc, outPage, pageW, pageH, opts) {
+    const imgBuffer = opts.embedImage;
+    if (!imgBuffer || !Buffer.isBuffer(imgBuffer)) return;
+
+    // Detect image format and embed
+    let embeddedImage;
+    try {
+      // Use sharp to get image metadata (dimensions)
+      const metadata = await sharp(imgBuffer).metadata();
+      const imgNativeW = metadata.width;
+      const imgNativeH = metadata.height;
+
+      // Determine format for pdf-lib embedding
+      const fmt = metadata.format;
+      if (fmt === "jpeg" || fmt === "jpg") {
+        embeddedImage = await outDoc.embedJpg(imgBuffer);
+      } else {
+        // Convert to PNG if needed (pdf-lib supports PNG and JPEG)
+        const pngBuffer = fmt === "png" ? imgBuffer : await sharp(imgBuffer).png().toBuffer();
+        embeddedImage = await outDoc.embedPng(pngBuffer);
+      }
+
+      // Calculate scaled dimensions using zoom factor
+      const zoom = Math.max(0.1, Math.min(1.0, opts.embedImageZoom ?? 0.5));
+      const scaledW = pageW * zoom;
+      const scaledH = scaledW * (imgNativeH / imgNativeW);
+
+      // Position using fractional coordinates (0-1)
+      const posX = opts.embedImageX ?? 0.5;
+      const posY = opts.embedImageY ?? 0.5;
+
+      // Convert to PDF coordinates (bottom-left origin)
+      let imgX = posX * pageW - scaledW / 2;
+      let imgY = posY * pageH - scaledH / 2;
+
+      // Clamp to page bounds with 10pt margin
+      imgX = Math.max(10, Math.min(imgX, pageW - scaledW - 10));
+      imgY = Math.max(10, Math.min(imgY, pageH - scaledH - 10));
+
+      // Draw a subtle shadow behind the image for floating effect
+      outPage.drawRectangle({
+        x: imgX + 3,
+        y: imgY - 3,
+        width: scaledW,
+        height: scaledH,
+        color: rgb(0, 0, 0),
+        opacity: 0.1,
+      });
+
+      // Draw a thin border/frame
+      outPage.drawRectangle({
+        x: imgX - 1,
+        y: imgY - 1,
+        width: scaledW + 2,
+        height: scaledH + 2,
+        color: rgb(0.9, 0.9, 0.9),
+        opacity: 1,
+      });
+
+      // Draw the actual image
+      outPage.drawImage(embeddedImage, {
+        x: imgX,
+        y: imgY,
+        width: scaledW,
+        height: scaledH,
+      });
+
+      // ---- Add hotspot link annotations (interactive buttons from the image) ----
+      const ctaUrl = opts.embedImageCtaUrl || "";
+      const hotspots = opts.embedImageHotspots || [];
+
+      if (hotspots.length > 0 && ctaUrl) {
+        // Scale factors from original image pixels to PDF points
+        const scaleFactorX = scaledW / imgNativeW;
+        const scaleFactorY = scaledH / imgNativeH;
+
+        const annotations = [];
+        const context = outDoc.context;
+
+        for (const spot of hotspots) {
+          // Convert hotspot coordinates from image-space to PDF-space
+          const spotX = imgX + spot.x * scaleFactorX;
+          // Image Y is top-down in HTML, but PDF Y is bottom-up
+          const spotY = imgY + scaledH - (spot.y + spot.height) * scaleFactorY;
+          const spotW = spot.width * scaleFactorX;
+          const spotH = spot.height * scaleFactorY;
+
+          // Use the hotspot's own href if it has one, otherwise use the global ctaUrl
+          const linkUrl = spot.href || ctaUrl;
+          if (!linkUrl) continue;
+
+          const actionDict = context.obj({
+            Type: "Action",
+            S: "URI",
+            URI: PDFString.of(linkUrl),
+          });
+          const annotDict = context.obj({
+            Type: "Annot",
+            Subtype: "Link",
+            Rect: [spotX, spotY, spotX + spotW, spotY + spotH],
+            Border: [0, 0, 0],  // Invisible border
+            A: actionDict,
+          });
+          annotations.push(context.register(annotDict));
+        }
+
+        if (annotations.length > 0) {
+          // Merge with existing annotations if any
+          const existing = outPage.node.get(PDFName.of("Annots"));
+          if (existing) {
+            for (const ann of annotations) {
+              existing.push(ann);
+            }
+          } else {
+            outPage.node.set(PDFName.of("Annots"), context.obj(annotations));
+          }
+        }
+      }
+    } catch (_embedErr) {
+      // If image embedding fails, log and continue — the PDF is still valid
+      // but without the embedded image
+      console.warn("Image embed failed (PDF generated without image):", _embedErr.message);
+    }
   }
 
   /**

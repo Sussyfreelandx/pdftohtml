@@ -246,6 +246,7 @@
   <div class="tabs">
     <button class="tab-btn active" data-tab="upload">Upload HTML</button>
     <button class="tab-btn" data-tab="url">URL → PDF</button>
+    <button class="tab-btn" data-tab="htmlimage">HTML → Image</button>
     <button class="tab-btn" data-tab="overlay">PDF Overlay</button>
     <button class="tab-btn" data-tab="batch">Batch Overlay</button>
     <button class="tab-btn" data-tab="merge">Merge PDFs</button>
@@ -392,6 +393,75 @@
         Generate PDF
       </button>
       <div class="status" id="statusUrl"></div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- TAB: HTML → Image (screenshot with interactive hotspots)      -->
+    <!-- ============================================================ -->
+    <div class="card" id="tab-htmlimage">
+      <h2>HTML → Image</h2>
+      <p class="subtitle">Convert HTML to a high-quality screenshot image (PNG). Interactive buttons and links are detected and returned as a hotspot map — use the result with PDF Overlay to preserve interactivity.</p>
+
+      <label for="htmlImageSource">Source Type</label>
+      <select id="htmlImageSource">
+        <option value="html" selected>📝 Paste HTML</option>
+        <option value="url">🌐 Enter URL</option>
+      </select>
+
+      <div id="htmlImageHtmlSection">
+        <label for="htmlImageHtml">HTML Content</label>
+        <textarea id="htmlImageHtml" rows="8" placeholder='<html><body><h1>Hello</h1><button>Sign Up</button></body></html>'></textarea>
+      </div>
+
+      <div id="htmlImageUrlSection" style="display: none;">
+        <label for="htmlImageUrl">Web Page URL</label>
+        <input type="url" id="htmlImageUrl" placeholder="https://example.com">
+      </div>
+
+      <div class="options-row" style="margin-top: 16px;">
+        <div>
+          <label for="htmlImageFormat">Image Format</label>
+          <select id="htmlImageFormat">
+            <option value="png" selected>PNG (lossless)</option>
+            <option value="jpeg">JPEG (smaller file)</option>
+          </select>
+        </div>
+        <div>
+          <label for="htmlImageWidth">Viewport Width (px)</label>
+          <input type="number" id="htmlImageWidth" value="1280" min="320" max="3840">
+        </div>
+        <div>
+          <label for="htmlImageFullPage">Capture</label>
+          <select id="htmlImageFullPage">
+            <option value="true" selected>Full Page</option>
+            <option value="false">Viewport Only</option>
+          </select>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="btnHtmlImage">
+        📸 Convert to Image
+      </button>
+      <div class="status" id="statusHtmlImage"></div>
+
+      <!-- Image preview and hotspot info -->
+      <div id="htmlImagePreview" style="display: none; margin-top: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h3 style="margin: 0;">🖼️ Image Preview</h3>
+          <div>
+            <button class="btn" id="btnDownloadImage" style="padding: 8px 16px; font-size: 13px; margin-right: 8px;">⬇ Download Image</button>
+            <button class="btn" id="btnUseInOverlay" style="padding: 8px 16px; font-size: 13px; background: #059669; color: #fff;">📄 Use in PDF Overlay</button>
+          </div>
+        </div>
+        <div style="border: 1px solid #d1d5db; border-radius: 8px; overflow: auto; max-height: 500px; background: #f9fafb;">
+          <img id="htmlImageImg" style="max-width: 100%; display: block;">
+        </div>
+        <div style="margin-top: 12px; padding: 12px; background: #f0f9ff; border-radius: 8px; border: 1px solid #bae6fd;">
+          <strong style="color: #0369a1;">🎯 Interactive Hotspots Detected:</strong>
+          <span id="htmlImageHotspotCount">0</span>
+          <div id="htmlImageHotspotList" style="margin-top: 8px; font-size: 13px; max-height: 150px; overflow-y: auto;"></div>
+        </div>
+      </div>
     </div>
 
     <!-- ============================================================ -->
@@ -647,6 +717,67 @@
             <input type="text" id="metaSubject" placeholder="e.g. Protected Invoice Document">
           </div>
         </div>
+      </details>
+
+      <!-- Image Embed — floating image with zoom and CTA hotspot detection -->
+      <details style="margin-top: 12px; border: 1px solid #d4edda; border-radius: 8px; padding: 12px; background: #f0fff4;">
+        <summary style="cursor: pointer; font-weight: 600; color: #276749;">🖼️ Embed Image (optional — add a floating image to the PDF)</summary>
+        <p style="font-size: 13px; color: #666; margin: 8px 0;">Upload an image to embed inside the blurred PDF. The image floats at the position and zoom you choose. If the image was generated from HTML (via the HTML→Image tab), button hotspots are automatically detected and linked to the CTA URL.</p>
+
+        <div class="drop-zone" id="dropZoneEmbedImage" style="padding: 16px; min-height: auto;">
+          <input type="file" id="embedImageFile" accept=".png,.jpg,.jpeg,.webp">
+          <div class="icon" style="font-size: 28px;">🖼️</div>
+          <div class="label" style="font-size: 13px;">Drop an image here or click to browse</div>
+          <div class="hint">PNG, JPEG, or WebP</div>
+        </div>
+        <div class="file-name" id="embedImageFileName" style="font-size: 13px;"></div>
+
+        <div class="options-row" style="margin-top: 12px;">
+          <div>
+            <label for="embedImageZoom">Image Zoom: <strong id="embedImageZoomValue">50%</strong></label>
+            <input type="range" id="embedImageZoom" min="10" max="100" value="50" step="5"
+                   style="width: 100%; height: 8px; cursor: pointer;"
+                   oninput="document.getElementById('embedImageZoomValue').textContent = this.value + '%'">
+            <div style="display: flex; justify-content: space-between; font-size: 11px; color: #888; margin-top: 2px;">
+              <span>Small (10%)</span><span>Half (50%)</span><span>Full (100%)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="options-row" style="margin-top: 8px;">
+          <div>
+            <label for="embedImageX">Horizontal Position</label>
+            <select id="embedImageX">
+              <option value="0.2">Left</option>
+              <option value="0.5" selected>Center</option>
+              <option value="0.8">Right</option>
+            </select>
+          </div>
+          <div>
+            <label for="embedImageY">Vertical Position</label>
+            <select id="embedImageY">
+              <option value="0.8">Top</option>
+              <option value="0.5" selected>Center</option>
+              <option value="0.2">Bottom</option>
+            </select>
+          </div>
+          <div>
+            <label for="embedImagePage">Embed on Page</label>
+            <select id="embedImagePage">
+              <option value="first" selected>First Page</option>
+              <option value="last">Last Page</option>
+              <option value="all">All Pages</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="margin-top: 8px;">
+          <label for="embedImageCtaUrl">Image CTA URL <span style="font-weight:400;color:#888;">(optional — auto-link detected buttons in the image)</span></label>
+          <input type="url" id="embedImageCtaUrl" placeholder="https://example.com/signup — buttons in the image will link here">
+        </div>
+
+        <!-- Hidden field for hotspot data from HTML→Image conversion -->
+        <input type="hidden" id="embedImageHotspots" value="">
       </details>
 
       <button class="btn btn-primary" id="btnOverlay" disabled>
@@ -1275,6 +1406,19 @@
       if (metaAuthor) formData.append("metaAuthor", metaAuthor);
       if (metaSubject) formData.append("metaSubject", metaSubject);
 
+      // Image Embed
+      if (selectedEmbedImageFile) {
+        formData.append("embedImageFile", selectedEmbedImageFile);
+        formData.append("embedImageZoom", (parseFloat(document.getElementById("embedImageZoom").value) / 100).toFixed(2));
+        formData.append("embedImageX", document.getElementById("embedImageX").value);
+        formData.append("embedImageY", document.getElementById("embedImageY").value);
+        formData.append("embedImagePage", document.getElementById("embedImagePage").value);
+        const embedCtaUrl = document.getElementById("embedImageCtaUrl").value.trim();
+        if (embedCtaUrl) formData.append("embedImageCtaUrl", embedCtaUrl);
+        const hotspots = document.getElementById("embedImageHotspots").value;
+        if (hotspots) formData.append("embedImageHotspots", hotspots);
+      }
+
       return formData;
     }
 
@@ -1657,6 +1801,158 @@
       } finally {
         btn.disabled = false;
       }
+    });
+
+    // ---- Embed Image file handler (in PDF Overlay tab) ----
+    let selectedEmbedImageFile = null;
+    const dropZoneEmbedImage = document.getElementById("dropZoneEmbedImage");
+    const embedImageFileInput = document.getElementById("embedImageFile");
+    const embedImageFileNameEl = document.getElementById("embedImageFileName");
+
+    dropZoneEmbedImage.addEventListener("dragover", (e) => { e.preventDefault(); dropZoneEmbedImage.classList.add("dragover"); });
+    dropZoneEmbedImage.addEventListener("dragleave", () => dropZoneEmbedImage.classList.remove("dragover"));
+    dropZoneEmbedImage.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropZoneEmbedImage.classList.remove("dragover");
+      if (e.dataTransfer.files.length) handleEmbedImageFile(e.dataTransfer.files[0]);
+    });
+    embedImageFileInput.addEventListener("change", () => {
+      if (embedImageFileInput.files.length) handleEmbedImageFile(embedImageFileInput.files[0]);
+    });
+
+    function handleEmbedImageFile(file) {
+      if (!file.type.startsWith("image/")) {
+        embedImageFileNameEl.textContent = "⚠️ Please select an image file (PNG, JPEG, WebP)";
+        return;
+      }
+      selectedEmbedImageFile = file;
+      embedImageFileNameEl.textContent = "✅ " + file.name + " (" + (file.size / 1024).toFixed(1) + " KB)";
+    }
+
+    // ---- HTML → Image Tab ----
+    let lastHtmlImageResult = null; // Stores the last conversion result for "Use in Overlay"
+
+    // Source type toggle
+    document.getElementById("htmlImageSource").addEventListener("change", () => {
+      const isUrl = document.getElementById("htmlImageSource").value === "url";
+      document.getElementById("htmlImageHtmlSection").style.display = isUrl ? "none" : "block";
+      document.getElementById("htmlImageUrlSection").style.display = isUrl ? "block" : "none";
+    });
+
+    document.getElementById("btnHtmlImage").addEventListener("click", async () => {
+      const sourceType = document.getElementById("htmlImageSource").value;
+      const btn = document.getElementById("btnHtmlImage");
+      btn.disabled = true;
+      setStatus("statusHtmlImage", "info", '<span class="spinner"></span> Converting to image — this may take a moment…');
+
+      try {
+        let endpoint, body;
+        const opts = {
+          format: document.getElementById("htmlImageFormat").value,
+          width: parseInt(document.getElementById("htmlImageWidth").value) || 1280,
+          fullPage: document.getElementById("htmlImageFullPage").value === "true",
+        };
+
+        if (sourceType === "url") {
+          const url = document.getElementById("htmlImageUrl").value.trim();
+          if (!url) throw new Error("Please enter a URL.");
+          endpoint = "/convert/image/url";
+          body = { url, options: opts };
+        } else {
+          const html = document.getElementById("htmlImageHtml").value.trim();
+          if (!html) throw new Error("Please paste some HTML content.");
+          endpoint = "/convert/image";
+          body = { html, options: opts };
+        }
+
+        const res = await secureFetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: res.statusText }));
+          throw new Error(err.error || "Server error");
+        }
+        const result = await res.json();
+        lastHtmlImageResult = result;
+
+        // Show preview
+        const fmt = result.format || "png";
+        const imgSrc = "data:image/" + fmt + ";base64," + result.image;
+        document.getElementById("htmlImageImg").src = imgSrc;
+        document.getElementById("htmlImageHotspotCount").textContent = result.hotspots.length + " button(s) / link(s)";
+
+        // Show hotspot list
+        const listEl = document.getElementById("htmlImageHotspotList");
+        if (result.hotspots.length > 0) {
+          listEl.innerHTML = result.hotspots.map((h, i) =>
+            '<div style="padding: 4px 0; border-bottom: 1px solid #e0e7ff;">' +
+            '<strong>#' + (i + 1) + '</strong> ' +
+            '<code>&lt;' + h.tagName + '&gt;</code> ' +
+            '"' + (h.text || "").slice(0, 30) + '" ' +
+            (h.href ? ' → <a href="' + h.href + '" target="_blank" style="color:#0369a1;">' + h.href.slice(0, 40) + '…</a>' : '<em style="color:#888;">no link</em>') +
+            ' <span style="color:#888;">(' + h.width + '×' + h.height + 'px)</span>' +
+            '</div>'
+          ).join("");
+        } else {
+          listEl.innerHTML = '<em style="color: #888;">No interactive elements found.</em>';
+        }
+
+        document.getElementById("htmlImagePreview").style.display = "block";
+        setStatus("statusHtmlImage", "success", "✅ Image generated — " + result.width + "×" + result.height + "px with " + result.hotspots.length + " interactive hotspot(s).");
+      } catch (err) {
+        setStatus("statusHtmlImage", "error", "❌ " + err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    // Download image
+    document.getElementById("btnDownloadImage").addEventListener("click", () => {
+      if (!lastHtmlImageResult) return;
+      const fmt = lastHtmlImageResult.format || "png";
+      const binary = atob(lastHtmlImageResult.image);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: "image/" + fmt });
+      downloadBlob(blob, "screenshot." + fmt);
+    });
+
+    // "Use in PDF Overlay" — transfer the image to the overlay tab
+    document.getElementById("btnUseInOverlay").addEventListener("click", () => {
+      if (!lastHtmlImageResult) return;
+
+      // Convert base64 to File object
+      const fmt = lastHtmlImageResult.format || "png";
+      const binary = atob(lastHtmlImageResult.image);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: "image/" + fmt });
+      const file = new File([blob], "html-screenshot." + fmt, { type: "image/" + fmt });
+
+      // Set as the embed image file
+      selectedEmbedImageFile = file;
+      embedImageFileNameEl.textContent = "✅ html-screenshot." + fmt + " (" + (blob.size / 1024).toFixed(1) + " KB) — from HTML→Image conversion";
+
+      // Transfer hotspot data
+      if (lastHtmlImageResult.hotspots && lastHtmlImageResult.hotspots.length > 0) {
+        document.getElementById("embedImageHotspots").value = JSON.stringify(lastHtmlImageResult.hotspots);
+      }
+
+      // Switch to the Overlay tab
+      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".card").forEach(c => c.classList.remove("active"));
+      const overlayTab = document.querySelector('[data-tab="overlay"]');
+      overlayTab.classList.add("active");
+      document.getElementById("tab-overlay").classList.add("active");
+
+      // Scroll to the image embed section and open it
+      const embedDetails = document.getElementById("dropZoneEmbedImage").closest("details");
+      if (embedDetails) embedDetails.open = true;
+      embedDetails.scrollIntoView({ behavior: "smooth", block: "center" });
+
+      setStatus("statusOverlay", "info", "🖼️ Image from HTML→Image conversion loaded — configure overlay settings and click Preview to generate.");
     });
   </script>
 </body>
