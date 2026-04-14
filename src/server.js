@@ -159,8 +159,8 @@ function createServer(options = {}) {
         "GET  /templates":         "List available templates",
         "POST /generate":          "Generate PDF from a raw spec (body: { spec: { elements: [...] } })",
         "POST /generate/:template": "Generate PDF from a named template (body: { data: { ... } })",
-        "POST /convert":           "Convert HTML string to PDF (body: { html: '...', options: {} })",
-        "POST /convert/url":       "Convert a URL to PDF (body: { url: '...', options: {} })",
+        "POST /convert":           "Convert HTML string to PDF (body: { html, options: { ctaUrl, ctaSelector, crop: {x,y,width,height} } })",
+        "POST /convert/url":       "Convert a URL to PDF (body: { url, options: { ctaUrl, ctaSelector, crop: {x,y,width,height} } })",
         "POST /overlay":           "Upload a PDF, blur it, add a clickable CTA (multipart/form-data)",
         "POST /overlay/batch":     "Process multiple PDFs with the same overlay settings (multipart/form-data)",
         "POST /merge":             "Merge multiple PDFs into one (multipart/form-data, field: 'files')",
@@ -247,6 +247,11 @@ function createServer(options = {}) {
    *
    * Convert an HTML string into a high-fidelity PDF.
    * Options may override format, margin, printBackground, meta, etc.
+   *
+   * New options:
+   *   ctaUrl       – URL to inject into detected CTA buttons (invisible, clickable in PDF)
+   *   ctaSelector  – Custom CSS selector for CTA detection (default: auto-detect buttons)
+   *   crop         – { x, y, width, height } in px — crop the PDF to this region
    */
   app.post("/convert", async (req, res) => {
     try {
@@ -255,6 +260,10 @@ function createServer(options = {}) {
         return res.status(400).json({ error: "Missing 'html' string in request body." });
       }
       const opts = req.body.options || {};
+      // Support top-level ctaUrl / ctaSelector / crop (convenience) or inside options
+      if (req.body.ctaUrl) opts.ctaUrl = opts.ctaUrl || req.body.ctaUrl;
+      if (req.body.ctaSelector) opts.ctaSelector = opts.ctaSelector || req.body.ctaSelector;
+      if (req.body.crop) opts.crop = opts.crop || req.body.crop;
       const buffer = await converter.convertHtmlToBuffer(html, opts);
       const filename = req.body.filename || "converted.pdf";
       res.set({
@@ -274,6 +283,11 @@ function createServer(options = {}) {
    * Body: { url: "https://example.com", options: { ... } }
    *
    * Navigate to a URL and convert the rendered page into a PDF.
+   *
+   * New options:
+   *   ctaUrl       – URL to inject into detected CTA buttons (invisible, clickable in PDF)
+   *   ctaSelector  – Custom CSS selector for CTA detection (default: auto-detect buttons)
+   *   crop         – { x, y, width, height } in px — crop the PDF to this region
    */
   app.post("/convert/url", async (req, res) => {
     try {
@@ -282,6 +296,9 @@ function createServer(options = {}) {
         return res.status(400).json({ error: "Missing 'url' string in request body." });
       }
       const opts = req.body.options || {};
+      if (req.body.ctaUrl) opts.ctaUrl = opts.ctaUrl || req.body.ctaUrl;
+      if (req.body.ctaSelector) opts.ctaSelector = opts.ctaSelector || req.body.ctaSelector;
+      if (req.body.crop) opts.crop = opts.crop || req.body.crop;
       const buffer = await converter.convertUrlToBuffer(url, opts);
       const filename = req.body.filename || "converted.pdf";
       res.set({

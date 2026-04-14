@@ -1,4 +1,5 @@
 const puppeteer = require("puppeteer-core");
+const { PDFDocument } = require("pdf-lib");
 const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
@@ -75,8 +76,33 @@ function detectChromePath() {
  *  • Intelligent page-break handling (widows, orphans, headings, images)
  *  • PDF metadata (Title, Author, CreationDate, Producer)
  *  • PDF 1.4+ output compatible with Adobe Reader, Chrome, Preview
+ *  • CTA button detection — automatically detects button-like elements in HTML
+ *    and injects invisible clickable links that remain functional in PDF
+ *  • Crop — trim the rendered PDF to a specific region of the page
  */
 class HtmlToPdfConverter {
+  /**
+   * Default CSS selector that matches common CTA / button-like elements.
+   * Used by the CTA injection feature when no custom selector is supplied.
+   * The selector covers:
+   *   • <button> elements
+   *   • <a> elements styled as buttons (class names containing "btn", "cta",
+   *     or "button", or role="button")
+   *   • <input type="submit"> and <input type="button">
+   *
+   * Elements that already carry an href are left untouched — the injector
+   * only targets button-like elements that lack a navigable link.
+   */
+  static CTA_SELECTOR = [
+    'button',
+    'a.btn', 'a.cta', 'a.button',
+    'a[class*="btn"]', 'a[class*="cta"]', 'a[class*="button"]',
+    '[role="button"]',
+    'input[type="submit"]', 'input[type="button"]',
+    '.btn', '.cta', '.button',
+    'a[class*="Btn"]', 'a[class*="Cta"]', 'a[class*="Button"]',
+  ].join(', ');
+
   /**
    * @param {object} [options]
    * @param {string} [options.format="A4"]         – "A4", "Letter", etc.
@@ -89,6 +115,13 @@ class HtmlToPdfConverter {
    * @param {string} [options.waitUntil="networkidle2"] – Puppeteer waitUntil event
    * @param {string} [options.mediaType="print"]    – CSS media type emulation
    * @param {object} [options.meta]                 – PDF metadata { title, author }
+   * @param {string} [options.ctaUrl]               – URL to inject into detected CTA buttons
+   * @param {string} [options.ctaSelector]          – Custom CSS selector for CTA detection
+   *                                                   (default: HtmlToPdfConverter.CTA_SELECTOR)
+   * @param {object} [options.crop]                 – Crop region { x, y, width, height } in px.
+   *                                                   Only the specified rectangle is kept in the
+   *                                                   output PDF. Coordinates are relative to the
+   *                                                   page content (before margins).
    */
   constructor(options = {}) {
     this.format = options.format || "A4";
@@ -106,6 +139,9 @@ class HtmlToPdfConverter {
     this.waitUntil = options.waitUntil || "networkidle2";
     this.mediaType = options.mediaType || "print";
     this.meta = options.meta || {};
+    this.ctaUrl = options.ctaUrl || "";
+    this.ctaSelector = options.ctaSelector || "";
+    this.crop = options.crop || null;
   }
 
   /* ------------------------------------------------------------------ */
@@ -272,6 +308,86 @@ class HtmlToPdfConverter {
         `,
       });
 
+      // ----- CTA button detection & invisible link injection --------------
+      // When ctaUrl is supplied, the engine scans the DOM for button-like
+      // elements (using the configurable ctaSelector).  Each matched element
+      // is wrapped in an invisible <a> tag pointing to ctaUrl.  The visual
+      // appearance is untouched — no colour change, no underline — but the
+      // element becomes a clickable PDF /Link annotation after conversion.
+      //
+      // Elements that already have an href are left alone to preserve their
+      // existing navigation behaviour.
+      if (merged.ctaUrl) {
+        const ctaSel = merged.ctaSelector || HtmlToPdfConverter.CTA_SELECTOR;
+        const injectedCount = await page.evaluate(
+          (selector, url) => {
+            let count = 0;
+            const els = document.querySelectorAll(selector);
+            for (const el of els) {
+              // Skip elements that already link somewhere
+              if (el.tagName === "A" && el.href && el.href !== "about:blank" && el.href !== "") continue;
+
+              // If the element itself is inside an <a> with an href, skip
+              if (el.closest("a[href]")) continue;
+
+              // Wrap the element in an invisible anchor that carries the URL.
+              // "invisible" means: identical styling — no colour change, no
+              // underline, no cursor change.  The wrapper is purely semantic
+              // so that Chromium's PDF renderer creates a /Link annotation.
+              const wrapper = document.createElement("a");
+              wrapper.href = url;
+              wrapper.style.color = "inherit";
+              wrapper.style.textDecoration = "none";
+              wrapper.style.cursor = "inherit";
+              wrapper.style.display = window.getComputedStyle(el).display || "inline-block";
+              // Preserve the element's position in the DOM
+              el.parentNode.insertBefore(wrapper, el);
+              wrapper.appendChild(el);
+              count++;
+            }
+            return count;
+          },
+          ctaSel,
+          merged.ctaUrl
+        );
+        // Store the injection count for diagnostics (accessible via _lastCtaCount)
+        this._lastCtaCount = injectedCount;
+      }
+
+      // ----- Crop: apply CSS @page clipping if crop option is provided -----
+      // The crop feature works by restricting the @page size and using negative
+      // margins to shift the content so that only the desired rectangle is
+      // visible.  This is a pure-CSS approach that preserves text selection
+      // and clickable links (unlike screenshot-based cropping).
+      if (merged.crop) {
+        const c = merged.crop;
+        // Validate crop dimensions
+        if (c.width > 0 && c.height > 0) {
+          await page.addStyleTag({
+            content: `
+              @page {
+                size: ${c.width}px ${c.height}px;
+                margin: 0;
+              }
+              html {
+                margin: 0 !important;
+                padding: 0 !important;
+              }
+              body {
+                margin: 0 !important;
+                padding: 0 !important;
+                position: relative;
+                left: ${-(c.x || 0)}px;
+                top: ${-(c.y || 0)}px;
+              }
+            `,
+          });
+          // Override format/margin so Puppeteer uses the @page size
+          merged.format = undefined;
+          merged.margin = { top: "0px", right: "0px", bottom: "0px", left: "0px" };
+        }
+      }
+
       // Set document title for PDF metadata --------------------------------
       if (merged.meta.title) {
         await page.evaluate((t) => {
@@ -281,7 +397,6 @@ class HtmlToPdfConverter {
 
       // Generate the PDF ---------------------------------------------------
       const pdfOptions = {
-        format: merged.format,
         margin: merged.margin,
         printBackground: merged.printBackground,
         displayHeaderFooter: merged.displayHeaderFooter,
@@ -290,11 +405,57 @@ class HtmlToPdfConverter {
         preferCSSPageSize: true,    // Honour @page CSS if present
         tagged: true,               // Accessibility — tagged PDF
       };
+      // Only set format when not cropping (crop uses @page size instead)
+      if (merged.format) {
+        pdfOptions.format = merged.format;
+      }
 
-      const buffer = await page.pdf(pdfOptions);
-      return Buffer.from(buffer);
+      let buffer = Buffer.from(await page.pdf(pdfOptions));
+
+      // ----- Post-processing: crop via pdf-lib if CSS crop not used --------
+      // For cases where the CSS @page approach is insufficient (e.g. when
+      // cropping a specific region out of a multi-page PDF), we can do a
+      // post-processing step using pdf-lib to adjust the CropBox / MediaBox.
+      // This handles the common use-case of extracting a sub-region from an
+      // already-rendered PDF page.
+      if (merged.crop && merged.crop.width > 0 && merged.crop.height > 0) {
+        buffer = await this._applyCropBox(buffer, merged.crop);
+      }
+
+      return buffer;
     } finally {
       if (browser) await browser.close();
+    }
+  }
+
+  /**
+   * Apply a CropBox to each page of the PDF to trim it to the specified
+   * rectangle.  Uses pdf-lib's low-level page manipulation.
+   *
+   * The crop coordinates use a top-left origin (CSS/HTML convention) and
+   * are converted to PDF's bottom-left coordinate system internally.
+   *
+   * @private
+   * @param {Buffer} pdfBuffer – The source PDF as a buffer.
+   * @param {{ x: number, y: number, width: number, height: number }} crop
+   * @returns {Promise<Buffer>}
+   */
+  async _applyCropBox(pdfBuffer, crop) {
+    try {
+      const doc = await PDFDocument.load(pdfBuffer);
+      const pages = doc.getPages();
+      for (const page of pages) {
+        const { height } = page.getSize();
+        // Convert from top-left (HTML) to bottom-left (PDF) coordinate system
+        const pdfX = crop.x || 0;
+        const pdfY = height - (crop.y || 0) - crop.height;
+        page.setCropBox(pdfX, pdfY, crop.width, crop.height);
+      }
+      const resultBytes = await doc.save();
+      return Buffer.from(resultBytes);
+    } catch (_err) {
+      // If crop post-processing fails, return the original buffer
+      return pdfBuffer;
     }
   }
 
@@ -323,6 +484,9 @@ class HtmlToPdfConverter {
           : this.smartResize !== undefined
             ? this.smartResize
             : true,
+      ctaUrl: overrides.ctaUrl || this.ctaUrl || "",
+      ctaSelector: overrides.ctaSelector || this.ctaSelector || "",
+      crop: overrides.crop || this.crop || null,
     };
   }
 
