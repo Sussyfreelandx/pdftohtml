@@ -324,8 +324,12 @@ class HtmlToPdfConverter {
             let count = 0;
             const els = document.querySelectorAll(selector);
             for (const el of els) {
-              // Skip elements that already link somewhere
-              if (el.tagName === "A" && el.href && el.href !== "about:blank" && el.href !== "") continue;
+              // Skip elements that already link somewhere (use getAttribute
+              // to avoid false positives from browser-normalised href values)
+              if (el.tagName === "A" && el.hasAttribute("href")) {
+                const raw = el.getAttribute("href").trim();
+                if (raw && raw !== "#" && raw !== "about:blank") continue;
+              }
 
               // If the element itself is inside an <a> with an href, skip
               if (el.closest("a[href]")) continue;

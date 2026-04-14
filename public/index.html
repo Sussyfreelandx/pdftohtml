@@ -286,6 +286,41 @@
         </div>
       </div>
 
+      <!-- CTA Button Detection — inject invisible clickable link into detected buttons -->
+      <div class="options-row" style="margin-top: 16px;">
+        <div style="flex:2;">
+          <label for="uploadCtaUrl">CTA Link URL <span style="font-weight:400;color:#888;">(optional)</span></label>
+          <input type="url" id="uploadCtaUrl" placeholder="https://example.com/signup — injected into detected buttons">
+        </div>
+        <div style="flex:1;">
+          <label for="uploadCtaSelector">CTA Selector <span style="font-weight:400;color:#888;">(optional)</span></label>
+          <input type="text" id="uploadCtaSelector" placeholder="button, .cta, .btn …">
+        </div>
+      </div>
+
+      <!-- Crop — trim the PDF to a specific region -->
+      <details style="margin-top: 16px;">
+        <summary style="cursor:pointer;font-size:13px;font-weight:600;color:#444;">✂️ Crop Region <span style="font-weight:400;color:#888;">(optional — trim PDF to a specific area)</span></summary>
+        <div class="options-row" style="margin-top: 8px;">
+          <div>
+            <label for="uploadCropX">X (px)</label>
+            <input type="number" id="uploadCropX" min="0" value="" placeholder="0">
+          </div>
+          <div>
+            <label for="uploadCropY">Y (px)</label>
+            <input type="number" id="uploadCropY" min="0" value="" placeholder="0">
+          </div>
+          <div>
+            <label for="uploadCropW">Width (px)</label>
+            <input type="number" id="uploadCropW" min="0" value="" placeholder="e.g. 595">
+          </div>
+          <div>
+            <label for="uploadCropH">Height (px)</label>
+            <input type="number" id="uploadCropH" min="0" value="" placeholder="e.g. 842">
+          </div>
+        </div>
+      </details>
+
       <button class="btn btn-primary" id="btnUpload" disabled>
         Generate PDF
       </button>
@@ -317,6 +352,41 @@
           <input type="text" id="urlFilename" placeholder="page.pdf">
         </div>
       </div>
+
+      <!-- CTA Button Detection — inject invisible clickable link into detected buttons -->
+      <div class="options-row" style="margin-top: 16px;">
+        <div style="flex:2;">
+          <label for="urlCtaUrl">CTA Link URL <span style="font-weight:400;color:#888;">(optional)</span></label>
+          <input type="url" id="urlCtaUrl" placeholder="https://example.com/signup — injected into detected buttons">
+        </div>
+        <div style="flex:1;">
+          <label for="urlCtaSelector">CTA Selector <span style="font-weight:400;color:#888;">(optional)</span></label>
+          <input type="text" id="urlCtaSelector" placeholder="button, .cta, .btn …">
+        </div>
+      </div>
+
+      <!-- Crop — trim the PDF to a specific region -->
+      <details style="margin-top: 16px;">
+        <summary style="cursor:pointer;font-size:13px;font-weight:600;color:#444;">✂️ Crop Region <span style="font-weight:400;color:#888;">(optional — trim PDF to a specific area)</span></summary>
+        <div class="options-row" style="margin-top: 8px;">
+          <div>
+            <label for="urlCropX">X (px)</label>
+            <input type="number" id="urlCropX" min="0" value="" placeholder="0">
+          </div>
+          <div>
+            <label for="urlCropY">Y (px)</label>
+            <input type="number" id="urlCropY" min="0" value="" placeholder="0">
+          </div>
+          <div>
+            <label for="urlCropW">Width (px)</label>
+            <input type="number" id="urlCropW" min="0" value="" placeholder="e.g. 595">
+          </div>
+          <div>
+            <label for="urlCropH">Height (px)</label>
+            <input type="number" id="urlCropH" min="0" value="" placeholder="e.g. 842">
+          </div>
+        </div>
+      </details>
 
       <button class="btn btn-primary" id="btnUrl">
         Generate PDF
@@ -898,7 +968,7 @@
         const token = await getCsrfToken();
         if (!opts.headers) opts.headers = {};
         if (typeof opts.headers.set === "function") {
-          // Headers object (for FormData)
+          opts.headers.set("X-CSRF-Token", token);
         } else {
           opts.headers["X-CSRF-Token"] = token;
         }
@@ -966,13 +1036,33 @@
 
       try {
         const htmlContent = await selectedFile.text();
+        const opts = { format: document.getElementById("uploadFormat").value };
+
+        // CTA injection
+        const ctaUrl = document.getElementById("uploadCtaUrl").value.trim();
+        const ctaSelector = document.getElementById("uploadCtaSelector").value.trim();
+        if (ctaUrl) opts.ctaUrl = ctaUrl;
+        if (ctaSelector) opts.ctaSelector = ctaSelector;
+
+        // Crop region
+        const cropW = parseFloat(document.getElementById("uploadCropW").value);
+        const cropH = parseFloat(document.getElementById("uploadCropH").value);
+        if (cropW > 0 && cropH > 0) {
+          opts.crop = {
+            x: parseFloat(document.getElementById("uploadCropX").value) || 0,
+            y: parseFloat(document.getElementById("uploadCropY").value) || 0,
+            width: cropW,
+            height: cropH,
+          };
+        }
+
         const res = await secureFetch("/convert", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             html: htmlContent,
             filename: document.getElementById("uploadFilename").value || "converted.pdf",
-            options: { format: document.getElementById("uploadFormat").value },
+            options: opts,
           }),
         });
         if (!res.ok) {
@@ -999,13 +1089,33 @@
       setStatus("statusUrl", "info", '<span class="spinner"></span> Navigating to URL and generating PDF…');
 
       try {
+        const opts = { format: document.getElementById("urlFormat").value };
+
+        // CTA injection
+        const ctaUrl = document.getElementById("urlCtaUrl").value.trim();
+        const ctaSelector = document.getElementById("urlCtaSelector").value.trim();
+        if (ctaUrl) opts.ctaUrl = ctaUrl;
+        if (ctaSelector) opts.ctaSelector = ctaSelector;
+
+        // Crop region
+        const cropW = parseFloat(document.getElementById("urlCropW").value);
+        const cropH = parseFloat(document.getElementById("urlCropH").value);
+        if (cropW > 0 && cropH > 0) {
+          opts.crop = {
+            x: parseFloat(document.getElementById("urlCropX").value) || 0,
+            y: parseFloat(document.getElementById("urlCropY").value) || 0,
+            width: cropW,
+            height: cropH,
+          };
+        }
+
         const res = await secureFetch("/convert/url", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             url,
             filename: document.getElementById("urlFilename").value || "page.pdf",
-            options: { format: document.getElementById("urlFormat").value },
+            options: opts,
           }),
         });
         if (!res.ok) {
