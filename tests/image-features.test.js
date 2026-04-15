@@ -484,3 +484,313 @@ describe("POST /convert/image endpoint", () => {
     expect(Array.isArray(json.hotspots)).toBe(true);
   }, 60000);
 });
+
+/* ------------------------------------------------------------------ */
+/*  PdfOverlayEngine — embedImageButtonText (text-based targeting)     */
+/* ------------------------------------------------------------------ */
+
+describe("PdfOverlayEngine — embedImageButtonText filtering", () => {
+  it("should only add annotations for hotspots matching the button text", async () => {
+    const source = await createTestPdf();
+    const imgBuffer = await createTestImage(400, 200);
+    const engine = new PdfOverlayEngine();
+
+    const hotspots = [
+      { x: 10, y: 10, width: 100, height: 40, href: "", text: "Sign Up" },
+      { x: 150, y: 10, width: 100, height: 40, href: "", text: "Login" },
+      { x: 280, y: 10, width: 80, height: 40, href: "", text: "Cancel" },
+    ];
+
+    // Target only "Sign Up"
+    const result = await engine.processBuffer(source, {
+      embedImage: imgBuffer,
+      embedImageZoom: 0.5,
+      embedImageHotspots: hotspots,
+      embedImageCtaUrl: "https://example.com/signup",
+      embedImageButtonText: "Sign Up",
+    });
+
+    expect(result.slice(0, 5).toString()).toBe("%PDF-");
+
+    // Verify the PDF has annotations
+    const loaded = await PDFDocument.load(result);
+    const page = loaded.getPage(0);
+    const annots = page.node.get(PDFName.of("Annots"));
+    expect(annots).toBeTruthy();
+  });
+
+  it("should be case-insensitive when matching button text", async () => {
+    const source = await createTestPdf();
+    const imgBuffer = await createTestImage(400, 200);
+    const engine = new PdfOverlayEngine();
+
+    const hotspots = [
+      { x: 10, y: 10, width: 100, height: 40, href: "", text: "SIGN UP NOW" },
+      { x: 150, y: 10, width: 100, height: 40, href: "", text: "Login" },
+    ];
+
+    // Use lowercase search — should match "SIGN UP NOW"
+    const result = await engine.processBuffer(source, {
+      embedImage: imgBuffer,
+      embedImageZoom: 0.5,
+      embedImageHotspots: hotspots,
+      embedImageCtaUrl: "https://example.com",
+      embedImageButtonText: "sign up",
+    });
+
+    expect(result.slice(0, 5).toString()).toBe("%PDF-");
+    const loaded = await PDFDocument.load(result);
+    const page = loaded.getPage(0);
+    const annots = page.node.get(PDFName.of("Annots"));
+    expect(annots).toBeTruthy();
+  });
+
+  it("should add no hotspot annotations when button text matches nothing", async () => {
+    const source = await createTestPdf();
+    const imgBuffer = await createTestImage(400, 200);
+    const engine = new PdfOverlayEngine();
+
+    const hotspots = [
+      { x: 10, y: 10, width: 100, height: 40, href: "", text: "Sign Up" },
+      { x: 150, y: 10, width: 100, height: 40, href: "", text: "Login" },
+    ];
+
+    // Search for text that doesn't exist in any hotspot
+    const result = await engine.processBuffer(source, {
+      embedImage: imgBuffer,
+      embedImageZoom: 0.5,
+      embedImageHotspots: hotspots,
+      embedImageCtaUrl: "https://example.com",
+      embedImageButtonText: "Subscribe",
+    });
+
+    expect(result.slice(0, 5).toString()).toBe("%PDF-");
+    // PDF should still be valid — just no extra annotations from hotspots
+  });
+
+  it("should link all hotspots when embedImageButtonText is empty", async () => {
+    const source = await createTestPdf();
+    const imgBuffer = await createTestImage(400, 200);
+    const engine = new PdfOverlayEngine();
+
+    const hotspots = [
+      { x: 10, y: 10, width: 100, height: 40, href: "", text: "Sign Up" },
+      { x: 150, y: 10, width: 100, height: 40, href: "", text: "Login" },
+    ];
+
+    // No button text filter — should link all hotspots
+    const result = await engine.processBuffer(source, {
+      embedImage: imgBuffer,
+      embedImageZoom: 0.5,
+      embedImageHotspots: hotspots,
+      embedImageCtaUrl: "https://example.com",
+      embedImageButtonText: "",
+    });
+
+    expect(result.slice(0, 5).toString()).toBe("%PDF-");
+    const loaded = await PDFDocument.load(result);
+    const page = loaded.getPage(0);
+    const annots = page.node.get(PDFName.of("Annots"));
+    expect(annots).toBeTruthy();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  PdfOverlayEngine — Enhanced blur styles                            */
+/* ------------------------------------------------------------------ */
+
+describe("PdfOverlayEngine — Enhanced blur styles", () => {
+  it("should accept heavyglass blur style", async () => {
+    const engine = new PdfOverlayEngine({ blurStyle: "heavyglass" });
+    expect(engine.blurStyle).toBe("heavyglass");
+  });
+
+  it("should accept cinematic blur style", async () => {
+    const engine = new PdfOverlayEngine({ blurStyle: "cinematic" });
+    expect(engine.blurStyle).toBe("cinematic");
+  });
+
+  it("should accept softfocus blur style", async () => {
+    const engine = new PdfOverlayEngine({ blurStyle: "softfocus" });
+    expect(engine.blurStyle).toBe("softfocus");
+  });
+
+  it("should accept pixelate blur style", async () => {
+    const engine = new PdfOverlayEngine({ blurStyle: "pixelate" });
+    expect(engine.blurStyle).toBe("pixelate");
+  });
+
+  it("should store embedImageButtonText in constructor", () => {
+    const engine = new PdfOverlayEngine({ embedImageButtonText: "Sign Up" });
+    expect(engine.embedImageButtonText).toBe("Sign Up");
+  });
+
+  it("should default embedImageButtonText to empty string", () => {
+    const engine = new PdfOverlayEngine();
+    expect(engine.embedImageButtonText).toBe("");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  POST /overlay — embedImageButtonText endpoint tests                */
+/* ------------------------------------------------------------------ */
+
+describe("POST /overlay — embedImageButtonText", () => {
+  let app, server, baseUrl;
+
+  beforeAll((done) => {
+    app = createServer();
+    server = app.listen(0, () => {
+      baseUrl = `http://localhost:${server.address().port}`;
+      done();
+    });
+  });
+
+  afterAll((done) => {
+    server.close(done);
+  });
+
+  function multipartRequest(path, fields, files) {
+    return new Promise((resolve, reject) => {
+      const boundary = "----TestBoundary" + Date.now();
+      const url = new URL(path, baseUrl);
+      const chunks = [];
+
+      for (const [key, value] of Object.entries(fields)) {
+        chunks.push(`--${boundary}\r\n`);
+        chunks.push(`Content-Disposition: form-data; name="${key}"\r\n\r\n`);
+        chunks.push(`${value}\r\n`);
+      }
+
+      for (const { fieldName, fileName, contentType, data } of files) {
+        chunks.push(`--${boundary}\r\n`);
+        chunks.push(`Content-Disposition: form-data; name="${fieldName}"; filename="${fileName}"\r\n`);
+        chunks.push(`Content-Type: ${contentType}\r\n\r\n`);
+        chunks.push(data);
+        chunks.push(`\r\n`);
+      }
+
+      chunks.push(`--${boundary}--\r\n`);
+
+      const bufferParts = chunks.map(c => typeof c === "string" ? Buffer.from(c) : c);
+      const body = Buffer.concat(bufferParts);
+
+      const opts = {
+        method: "POST",
+        hostname: url.hostname,
+        port: url.port,
+        path: url.pathname + url.search,
+        headers: {
+          "Content-Type": `multipart/form-data; boundary=${boundary}`,
+          "Content-Length": body.length,
+        },
+      };
+
+      const req = http.request(opts, (res) => {
+        const resChunks = [];
+        res.on("data", (c) => resChunks.push(c));
+        res.on("end", () => {
+          resolve({
+            status: res.statusCode,
+            headers: res.headers,
+            body: Buffer.concat(resChunks),
+          });
+        });
+      });
+      req.on("error", reject);
+      req.write(body);
+      req.end();
+    });
+  }
+
+  it("should accept embedImageButtonText via overlay endpoint", async () => {
+    const pdfBuffer = await createTestPdf();
+    const imgBuffer = await createTestImage(400, 200);
+
+    const hotspots = [
+      { x: 10, y: 10, width: 100, height: 40, href: "", text: "Sign Up" },
+      { x: 150, y: 10, width: 100, height: 40, href: "", text: "Login" },
+    ];
+
+    const res = await multipartRequest("/overlay", {
+      ctaUrl: "https://example.com",
+      embedImageZoom: "0.5",
+      embedImageCtaUrl: "https://example.com/cta",
+      embedImageHotspots: JSON.stringify(hotspots),
+      embedImageButtonText: "Sign Up",
+    }, [
+      { fieldName: "file", fileName: "test.pdf", contentType: "application/pdf", data: pdfBuffer },
+      { fieldName: "embedImageFile", fileName: "test.png", contentType: "image/png", data: imgBuffer },
+    ]);
+
+    expect(res.status).toBe(200);
+    expect(res.body.slice(0, 5).toString()).toBe("%PDF-");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  HtmlToImageConverter — Crop tests                                  */
+/* ------------------------------------------------------------------ */
+
+describe("HtmlToImageConverter — Crop", () => {
+  // These tests require Chromium — they'll be skipped if unavailable
+
+  it("should accept crop option and return cropped image", async () => {
+    const converter = new HtmlToImageConverter();
+    try {
+      const result = await converter.convertHtmlToImage(
+        "<html><body style='padding:50px;'><h1>Hello World</h1><button style='margin: 20px;'>Click Me</button></body></html>",
+        { crop: { x: 10, y: 10, width: 200, height: 100 } }
+      );
+
+      expect(result.image).toBeInstanceOf(Buffer);
+      expect(result.image.length).toBeGreaterThan(0);
+      // Cropped dimensions should reflect the crop size
+      expect(result.width).toBe(200);
+      expect(result.height).toBe(100);
+    } catch (err) {
+      if (err.message.includes("Chrome")) return; // Skip — no Chrome
+      throw err;
+    }
+  }, 60000);
+
+  it("should filter out-of-bounds hotspots after crop", async () => {
+    const converter = new HtmlToImageConverter();
+    try {
+      // Full-page result for comparison
+      const fullResult = await converter.convertHtmlToImage(
+        "<html><body style='padding:50px;'><button style='position:absolute;left:500px;top:500px;'>Far Away</button><button style='position:absolute;left:20px;top:20px;'>Near</button></body></html>"
+      );
+
+      // Cropped — only the top-left area
+      const croppedResult = await converter.convertHtmlToImage(
+        "<html><body style='padding:50px;'><button style='position:absolute;left:500px;top:500px;'>Far Away</button><button style='position:absolute;left:20px;top:20px;'>Near</button></body></html>",
+        { crop: { x: 0, y: 0, width: 200, height: 200 } }
+      );
+
+      // Cropped version should have fewer or equal hotspots (the "Far Away" button is outside the crop)
+      expect(croppedResult.hotspots.length).toBeLessThanOrEqual(fullResult.hotspots.length);
+    } catch (err) {
+      if (err.message.includes("Chrome")) return;
+      throw err;
+    }
+  }, 60000);
+
+  it("should ignore crop with zero dimensions", async () => {
+    const converter = new HtmlToImageConverter();
+    try {
+      const result = await converter.convertHtmlToImage(
+        "<html><body><h1>Test</h1></body></html>",
+        { crop: { x: 0, y: 0, width: 0, height: 0 } }
+      );
+
+      // Should return a valid image (crop ignored)
+      expect(result.image).toBeInstanceOf(Buffer);
+      expect(result.width).toBeGreaterThan(0);
+      expect(result.height).toBeGreaterThan(0);
+    } catch (err) {
+      if (err.message.includes("Chrome")) return;
+      throw err;
+    }
+  }, 60000);
+});

@@ -162,8 +162,8 @@ function createServer(options = {}) {
         "POST /generate/:template": "Generate PDF from a named template (body: { data: { ... } })",
         "POST /convert":           "Convert HTML string to PDF (body: { html, options: { ctaUrl, ctaSelector, crop: {x,y,width,height} } })",
         "POST /convert/url":       "Convert a URL to PDF (body: { url, options: { ctaUrl, ctaSelector, crop: {x,y,width,height} } })",
-        "POST /convert/image":     "Convert HTML string to image with interactive hotspot map (body: { html, options })",
-        "POST /convert/image/url": "Convert a URL to image with interactive hotspot map (body: { url, options })",
+        "POST /convert/image":     "Convert HTML string to image with interactive hotspot map (body: { html, options: { crop: {x,y,width,height} } })",
+        "POST /convert/image/url": "Convert a URL to image with interactive hotspot map (body: { url, options: { crop: {x,y,width,height} } })",
         "POST /overlay":           "Upload a PDF, blur it, add a clickable CTA (multipart/form-data). Supports image embed with zoom & floating placement.",
         "POST /overlay/batch":     "Process multiple PDFs with the same overlay settings (multipart/form-data)",
         "POST /merge":             "Merge multiple PDFs into one (multipart/form-data, field: 'files')",
@@ -338,6 +338,8 @@ function createServer(options = {}) {
         return res.status(400).json({ error: "Missing 'html' string in request body." });
       }
       const opts = req.body.options || {};
+      // Support top-level crop (convenience) or inside options
+      if (req.body.crop) opts.crop = opts.crop || req.body.crop;
       const result = await imageConverter.convertHtmlToImage(html, opts);
       const filename = req.body.filename || "screenshot.png";
 
@@ -379,6 +381,7 @@ function createServer(options = {}) {
         return res.status(400).json({ error: "Missing 'url' string in request body." });
       }
       const opts = req.body.options || {};
+      if (req.body.crop) opts.crop = opts.crop || req.body.crop;
       const result = await imageConverter.convertUrlToImage(url, opts);
       const filename = req.body.filename || "screenshot.png";
 
@@ -455,8 +458,9 @@ function createServer(options = {}) {
    *   embedImageX    – Horizontal position 0-1 (default: 0.5 = center)
    *   embedImageY    – Vertical position 0-1 (default: 0.5 = center, 0=bottom, 1=top)
    *   embedImagePage – Which page: "first" (default), "last", "all", or page number
-   *   embedImageHotspots – JSON string of hotspot regions: [{ x, y, width, height, href }]
+   *   embedImageHotspots – JSON string of hotspot regions: [{ x, y, width, height, href, text }]
    *   embedImageCtaUrl – URL to inject into button-like hotspots on the embedded image
+   *   embedImageButtonText – Search text to match against hotspot labels (case-insensitive). Only hotspots containing this text receive the link.
    */
   app.post("/overlay", upload.fields([
     { name: "file", maxCount: 1 },
@@ -509,6 +513,7 @@ function createServer(options = {}) {
       if (req.body.embedImageY) overrides.embedImageY = parseFloat(req.body.embedImageY);
       if (req.body.embedImagePage) overrides.embedImagePage = req.body.embedImagePage;
       if (req.body.embedImageCtaUrl) overrides.embedImageCtaUrl = req.body.embedImageCtaUrl;
+      if (req.body.embedImageButtonText) overrides.embedImageButtonText = req.body.embedImageButtonText;
       if (req.body.embedImageHotspots) {
         try {
           overrides.embedImageHotspots = JSON.parse(req.body.embedImageHotspots);

@@ -68,8 +68,9 @@ class PdfOverlayEngine {
    * @param {number}  [options.embedImageX=0.5]            – Horizontal position (0-1 fraction of page width, 0.5=center)
    * @param {number}  [options.embedImageY=0.5]            – Vertical position (0-1 fraction of page height, 0=bottom, 1=top, 0.5=center)
    * @param {string}  [options.embedImagePage="first"]     – Which page: "first", "last", "all", or a page number like "1"
-   * @param {Array}   [options.embedImageHotspots]         – Interactive regions: [{ x, y, width, height, href }] in original image pixels
+   * @param {Array}   [options.embedImageHotspots]         – Interactive regions: [{ x, y, width, height, href, text }] in original image pixels
    * @param {string}  [options.embedImageCtaUrl]           – URL to inject into all detected button hotspots on the embedded image
+   * @param {string}  [options.embedImageButtonText]       – Search text to match against hotspot labels. Only hotspots whose text contains this value (case-insensitive) receive the link — enables precise targeting of a specific button in the image.
    */
   constructor(options = {}) {
     this.blurRadius = options.blurRadius ?? 5;
@@ -110,6 +111,7 @@ class PdfOverlayEngine {
     this.embedImagePage = options.embedImagePage || "first";
     this.embedImageHotspots = options.embedImageHotspots || [];
     this.embedImageCtaUrl = options.embedImageCtaUrl || "";
+    this.embedImageButtonText = options.embedImageButtonText || "";
   }
 
   // Maximum output file size in bytes (1 MB).
@@ -384,9 +386,22 @@ class PdfOverlayEngine {
 
       // ---- Add hotspot link annotations (interactive buttons from the image) ----
       const ctaUrl = opts.embedImageCtaUrl || "";
-      const hotspots = opts.embedImageHotspots || [];
+      let hotspots = opts.embedImageHotspots || [];
+      const buttonText = (opts.embedImageButtonText || "").trim().toLowerCase();
 
       if (hotspots.length > 0 && ctaUrl) {
+        // If embedImageButtonText is specified, filter hotspots to only those
+        // whose visible text contains the search term (case-insensitive).
+        // This allows the user to type e.g. "Sign Up" to target only the
+        // "Sign Up" button in the image — the link is placed precisely on
+        // the matching button without affecting other elements.
+        if (buttonText) {
+          hotspots = hotspots.filter(spot => {
+            const spotText = (spot.text || "").toLowerCase();
+            return spotText.includes(buttonText);
+          });
+        }
+
         // Scale factors from original image pixels to PDF points
         const scaleFactorX = scaledW / imgNativeW;
         const scaleFactorY = scaledH / imgNativeH;
@@ -958,19 +973,76 @@ class PdfOverlayEngine {
             // 10-30× smaller than the equivalent PNG.
             const blurSigma = Math.max(opts.blurRadius, 1);
             let blurredJpeg;
-            if (opts.blurStyle === "glass") {
-              // Frosted glass: blur + subtle brightness lift + mild desaturation
-              blurredJpeg = await sharp(rawPng)
-                .blur(blurSigma)
-                .modulate({ brightness: 1.05, saturation: 0.85 })
-                .jpeg({ quality: jpegQuality, mozjpeg: true })
-                .toBuffer();
-            } else {
-              // Standard Gaussian blur
-              blurredJpeg = await sharp(rawPng)
-                .blur(blurSigma)
-                .jpeg({ quality: jpegQuality, mozjpeg: true })
-                .toBuffer();
+
+            switch (opts.blurStyle) {
+              case "glass":
+                // Frosted glass: blur + subtle brightness lift + mild desaturation
+                blurredJpeg = await sharp(rawPng)
+                  .blur(blurSigma)
+                  .modulate({ brightness: 1.05, saturation: 0.85 })
+                  .jpeg({ quality: jpegQuality, mozjpeg: true })
+                  .toBuffer();
+                break;
+
+              case "heavyglass":
+                // Heavy frosted glass: double-pass blur for stronger effect
+                // with significant desaturation and brightness lift for an
+                // opaque frosted-glass appearance.
+                blurredJpeg = await sharp(
+                  await sharp(rawPng)
+                    .blur(blurSigma)
+                    .toBuffer()
+                )
+                  .blur(Math.max(Math.round(blurSigma * 0.6), 1))
+                  .modulate({ brightness: 1.12, saturation: 0.65 })
+                  .jpeg({ quality: jpegQuality, mozjpeg: true })
+                  .toBuffer();
+                break;
+
+              case "cinematic":
+                // Cinematic: moderate blur + warm tone shift + vignette-like
+                // darkened edges using a mild gamma adjustment.
+                blurredJpeg = await sharp(rawPng)
+                  .blur(blurSigma)
+                  .modulate({ brightness: 0.95, saturation: 1.15 })
+                  .gamma(1.3)
+                  .jpeg({ quality: jpegQuality, mozjpeg: true })
+                  .toBuffer();
+                break;
+
+              case "softfocus":
+                // Soft focus: gentle blur + slight brightness boost.
+                // The blur sigma is clamped lower to keep text just barely
+                // recognisable (portrait / soft-focus lens effect).
+                blurredJpeg = await sharp(rawPng)
+                  .blur(Math.max(Math.round(blurSigma * 0.7), 1))
+                  .modulate({ brightness: 1.08, saturation: 0.95 })
+                  .jpeg({ quality: jpegQuality, mozjpeg: true })
+                  .toBuffer();
+                break;
+
+              case "pixelate": {
+                // Pixelated privacy: downscale then upscale to create a
+                // mosaic / pixelation effect instead of Gaussian blur.
+                const meta = await sharp(rawPng).metadata();
+                const factor = Math.max(4, Math.round(blurSigma * 1.5));
+                const smallW = Math.max(4, Math.round((meta.width || 100) / factor));
+                const smallH = Math.max(4, Math.round((meta.height || 100) / factor));
+                blurredJpeg = await sharp(rawPng)
+                  .resize(smallW, smallH, { kernel: sharp.kernel.nearest })
+                  .resize(meta.width, meta.height, { kernel: sharp.kernel.nearest })
+                  .jpeg({ quality: jpegQuality, mozjpeg: true })
+                  .toBuffer();
+                break;
+              }
+
+              default:
+                // Standard Gaussian blur
+                blurredJpeg = await sharp(rawPng)
+                  .blur(blurSigma)
+                  .jpeg({ quality: jpegQuality, mozjpeg: true })
+                  .toBuffer();
+                break;
             }
 
             results.push(blurredJpeg);

@@ -449,12 +449,47 @@
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
           <h3 style="margin: 0;">🖼️ Image Preview</h3>
           <div>
+            <button class="btn" id="btnCropToggle" style="padding: 8px 16px; font-size: 13px; margin-right: 8px; background: #f59e0b; color: #fff;">✂️ Crop</button>
             <button class="btn" id="btnDownloadImage" style="padding: 8px 16px; font-size: 13px; margin-right: 8px;">⬇ Download Image</button>
             <button class="btn" id="btnUseInOverlay" style="padding: 8px 16px; font-size: 13px; background: #059669; color: #fff;">📄 Use in PDF Overlay</button>
           </div>
         </div>
-        <div style="border: 1px solid #d1d5db; border-radius: 8px; overflow: auto; max-height: 500px; background: #f9fafb;">
+
+        <!-- Crop controls (hidden by default) -->
+        <div id="cropControls" style="display: none; margin-bottom: 12px; padding: 12px; background: #fffbeb; border: 1px solid #fbbf24; border-radius: 8px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+            <strong style="color: #92400e;">✂️ Crop Mode</strong>
+            <div>
+              <button class="btn" id="btnCropApply" style="padding: 6px 14px; font-size: 12px; background: #059669; color: #fff; margin-right: 6px;">✅ Apply Crop</button>
+              <button class="btn" id="btnCropCancel" style="padding: 6px 14px; font-size: 12px;">Cancel</button>
+            </div>
+          </div>
+          <p style="font-size: 12px; color: #78350f; margin-bottom: 8px;">Click and drag on the image to select the crop region. Adjust using the fields below, or drag directly.</p>
+          <div class="options-row" style="gap: 8px;">
+            <div>
+              <label for="cropX" style="font-size: 12px;">X (px)</label>
+              <input type="number" id="cropX" value="0" min="0" style="font-size: 13px; padding: 4px 8px;">
+            </div>
+            <div>
+              <label for="cropY" style="font-size: 12px;">Y (px)</label>
+              <input type="number" id="cropY" value="0" min="0" style="font-size: 13px; padding: 4px 8px;">
+            </div>
+            <div>
+              <label for="cropW" style="font-size: 12px;">Width (px)</label>
+              <input type="number" id="cropW" value="0" min="0" style="font-size: 13px; padding: 4px 8px;">
+            </div>
+            <div>
+              <label for="cropH" style="font-size: 12px;">Height (px)</label>
+              <input type="number" id="cropH" value="0" min="0" style="font-size: 13px; padding: 4px 8px;">
+            </div>
+          </div>
+          <div id="cropInfo" style="margin-top: 6px; font-size: 12px; color: #92400e;"></div>
+        </div>
+
+        <div style="border: 1px solid #d1d5db; border-radius: 8px; overflow: auto; max-height: 500px; background: #f9fafb; position: relative;" id="htmlImageContainer">
           <img id="htmlImageImg" style="max-width: 100%; display: block;">
+          <!-- Crop overlay rectangle -->
+          <div id="cropOverlay" style="display: none; position: absolute; border: 2px dashed #f59e0b; background: rgba(245,158,11,0.12); pointer-events: none;"></div>
         </div>
         <div style="margin-top: 12px; padding: 12px; background: #f0f9ff; border-radius: 8px; border: 1px solid #bae6fd;">
           <strong style="color: #0369a1;">🎯 Interactive Hotspots Detected:</strong>
@@ -531,7 +566,11 @@
           <label for="blurStyle">Blur Style</label>
           <select id="blurStyle">
             <option value="glass" selected>🧊 Frosted Glass</option>
+            <option value="heavyglass">🧊🧊 Heavy Frosted Glass</option>
             <option value="standard">🌫️ Standard Gaussian</option>
+            <option value="cinematic">🎬 Cinematic</option>
+            <option value="softfocus">🔍 Soft Focus</option>
+            <option value="pixelate">🟩 Pixelate (Mosaic)</option>
           </select>
         </div>
         <div>
@@ -774,6 +813,15 @@
         <div style="margin-top: 8px;">
           <label for="embedImageCtaUrl">Image CTA URL <span style="font-weight:400;color:#888;">(optional — auto-link detected buttons in the image)</span></label>
           <input type="url" id="embedImageCtaUrl" placeholder="https://example.com/signup — buttons in the image will link here">
+        </div>
+
+        <div style="margin-top: 8px;">
+          <label for="embedImageButtonText">Target Button Text <span style="font-weight:400;color:#888;">(optional — type the exact button text to target)</span></label>
+          <input type="text" id="embedImageButtonText" placeholder='e.g. "Sign Up" — only this button gets the link'>
+          <div style="font-size: 11px; color: #888; margin-top: 2px;">
+            Type the visible text of the button you want to link. Leave empty to link <strong>all</strong> detected buttons. Case-insensitive partial match.
+          </div>
+          <div id="embedImageButtonTextMatch" style="display: none; margin-top: 4px; padding: 6px 10px; border-radius: 6px; font-size: 12px;"></div>
         </div>
 
         <!-- Hidden field for hotspot data from HTML→Image conversion -->
@@ -1415,6 +1463,8 @@
         formData.append("embedImagePage", document.getElementById("embedImagePage").value);
         const embedCtaUrl = document.getElementById("embedImageCtaUrl").value.trim();
         if (embedCtaUrl) formData.append("embedImageCtaUrl", embedCtaUrl);
+        const buttonText = document.getElementById("embedImageButtonText").value.trim();
+        if (buttonText) formData.append("embedImageButtonText", buttonText);
         const hotspots = document.getElementById("embedImageHotspots").value;
         if (hotspots) formData.append("embedImageHotspots", hotspots);
       }
@@ -1923,21 +1973,32 @@
     document.getElementById("btnUseInOverlay").addEventListener("click", () => {
       if (!lastHtmlImageResult) return;
 
+      // Determine if we should use the cropped image
+      const source = (cropState.applied && cropState.croppedImageBase64)
+        ? cropState.croppedImageBase64
+        : lastHtmlImageResult.image;
+      const hotspots = (cropState.applied && cropState.croppedHotspots)
+        ? cropState.croppedHotspots
+        : lastHtmlImageResult.hotspots;
+
       // Convert base64 to File object
       const fmt = lastHtmlImageResult.format || "png";
-      const binary = atob(lastHtmlImageResult.image);
+      const binary = atob(source);
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
       const blob = new Blob([bytes], { type: "image/" + fmt });
-      const file = new File([blob], "html-screenshot." + fmt, { type: "image/" + fmt });
+      const suffix = cropState.applied ? "cropped." : "screenshot.";
+      const file = new File([blob], "html-" + suffix + fmt, { type: "image/" + fmt });
 
       // Set as the embed image file
       selectedEmbedImageFile = file;
-      embedImageFileNameEl.textContent = "✅ html-screenshot." + fmt + " (" + (blob.size / 1024).toFixed(1) + " KB) — from HTML→Image conversion";
+      embedImageFileNameEl.textContent = "✅ html-" + suffix + fmt + " (" + (blob.size / 1024).toFixed(1) + " KB)" + (cropState.applied ? " — cropped" : " — from HTML→Image conversion");
 
       // Transfer hotspot data
-      if (lastHtmlImageResult.hotspots && lastHtmlImageResult.hotspots.length > 0) {
-        document.getElementById("embedImageHotspots").value = JSON.stringify(lastHtmlImageResult.hotspots);
+      if (hotspots && hotspots.length > 0) {
+        document.getElementById("embedImageHotspots").value = JSON.stringify(hotspots);
+      } else {
+        document.getElementById("embedImageHotspots").value = "";
       }
 
       // Switch to the Overlay tab
@@ -1953,6 +2014,208 @@
       embedDetails.scrollIntoView({ behavior: "smooth", block: "center" });
 
       setStatus("statusOverlay", "info", "🖼️ Image from HTML→Image conversion loaded — configure overlay settings and click Preview to generate.");
+    });
+
+    // ---- Crop Tool for HTML → Image ----
+    const cropState = {
+      active: false,          // Whether crop mode is enabled
+      applied: false,         // Whether a crop has been applied
+      dragging: false,        // Whether user is currently dragging
+      startX: 0, startY: 0,  // Start of drag in image CSS pixels
+      rect: { x: 0, y: 0, w: 0, h: 0 }, // Current crop rect in image CSS pixels
+      croppedImageBase64: null,
+      croppedHotspots: null,
+    };
+
+    document.getElementById("btnCropToggle").addEventListener("click", () => {
+      cropState.active = !cropState.active;
+      cropState.applied = false;
+      cropState.croppedImageBase64 = null;
+      cropState.croppedHotspots = null;
+      document.getElementById("cropControls").style.display = cropState.active ? "block" : "none";
+      document.getElementById("cropOverlay").style.display = "none";
+      document.getElementById("btnCropToggle").textContent = cropState.active ? "✂️ Cropping…" : "✂️ Crop";
+      document.getElementById("btnCropToggle").style.background = cropState.active ? "#dc2626" : "#f59e0b";
+      if (!cropState.active) {
+        document.getElementById("cropInfo").textContent = "";
+      }
+    });
+
+    document.getElementById("btnCropCancel").addEventListener("click", () => {
+      cropState.active = false;
+      cropState.applied = false;
+      cropState.croppedImageBase64 = null;
+      cropState.croppedHotspots = null;
+      document.getElementById("cropControls").style.display = "none";
+      document.getElementById("cropOverlay").style.display = "none";
+      document.getElementById("btnCropToggle").textContent = "✂️ Crop";
+      document.getElementById("btnCropToggle").style.background = "#f59e0b";
+      // Restore original image
+      if (lastHtmlImageResult) {
+        const fmt = lastHtmlImageResult.format || "png";
+        document.getElementById("htmlImageImg").src = "data:image/" + fmt + ";base64," + lastHtmlImageResult.image;
+      }
+    });
+
+    // Mouse-based crop selection on the image container
+    const imgContainer = document.getElementById("htmlImageContainer");
+    const cropOverlay = document.getElementById("cropOverlay");
+
+    imgContainer.addEventListener("mousedown", (e) => {
+      if (!cropState.active) return;
+      const img = document.getElementById("htmlImageImg");
+      const rect = img.getBoundingClientRect();
+      cropState.dragging = true;
+      cropState.startX = e.clientX - rect.left;
+      cropState.startY = e.clientY - rect.top;
+      cropOverlay.style.display = "block";
+      e.preventDefault();
+    });
+
+    document.addEventListener("mousemove", (e) => {
+      if (!cropState.dragging) return;
+      const img = document.getElementById("htmlImageImg");
+      const rect = img.getBoundingClientRect();
+      const curX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+      const curY = Math.max(0, Math.min(e.clientY - rect.top, rect.height));
+
+      const x = Math.min(cropState.startX, curX);
+      const y = Math.min(cropState.startY, curY);
+      const w = Math.abs(curX - cropState.startX);
+      const h = Math.abs(curY - cropState.startY);
+
+      cropOverlay.style.left = x + "px";
+      cropOverlay.style.top = y + "px";
+      cropOverlay.style.width = w + "px";
+      cropOverlay.style.height = h + "px";
+
+      cropState.rect = { x, y, w, h };
+
+      // Convert to image pixels (the img might be scaled)
+      if (lastHtmlImageResult) {
+        const scaleX = lastHtmlImageResult.width / rect.width;
+        const scaleY = lastHtmlImageResult.height / rect.height;
+        const imgX = Math.round(x * scaleX);
+        const imgY = Math.round(y * scaleY);
+        const imgW = Math.round(w * scaleX);
+        const imgH = Math.round(h * scaleY);
+        document.getElementById("cropX").value = imgX;
+        document.getElementById("cropY").value = imgY;
+        document.getElementById("cropW").value = imgW;
+        document.getElementById("cropH").value = imgH;
+        document.getElementById("cropInfo").textContent = "Selection: " + imgW + "×" + imgH + " px at (" + imgX + ", " + imgY + ")";
+      }
+    });
+
+    document.addEventListener("mouseup", () => {
+      cropState.dragging = false;
+    });
+
+    // Apply crop
+    document.getElementById("btnCropApply").addEventListener("click", async () => {
+      if (!lastHtmlImageResult) return;
+
+      const cropX = parseInt(document.getElementById("cropX").value) || 0;
+      const cropY = parseInt(document.getElementById("cropY").value) || 0;
+      const cropW = parseInt(document.getElementById("cropW").value) || 0;
+      const cropH = parseInt(document.getElementById("cropH").value) || 0;
+
+      if (cropW < 10 || cropH < 10) {
+        document.getElementById("cropInfo").textContent = "⚠️ Selection too small — drag a larger area on the image.";
+        return;
+      }
+
+      document.getElementById("cropInfo").textContent = "⏳ Applying crop…";
+
+      try {
+        // Re-request conversion from the server with crop parameters
+        const sourceType = document.getElementById("htmlImageSource").value;
+        const opts = {
+          format: document.getElementById("htmlImageFormat").value,
+          width: parseInt(document.getElementById("htmlImageWidth").value) || 1280,
+          fullPage: document.getElementById("htmlImageFullPage").value === "true",
+          crop: { x: cropX, y: cropY, width: cropW, height: cropH },
+        };
+
+        let endpoint, body;
+        if (sourceType === "url") {
+          endpoint = "/convert/image/url";
+          body = { url: document.getElementById("htmlImageUrl").value.trim(), options: opts };
+        } else {
+          endpoint = "/convert/image";
+          body = { html: document.getElementById("htmlImageHtml").value.trim(), options: opts };
+        }
+
+        const res = await secureFetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: res.statusText }));
+          throw new Error(err.error || "Server error");
+        }
+        const result = await res.json();
+
+        // Update preview with cropped image
+        const fmt = result.format || "png";
+        document.getElementById("htmlImageImg").src = "data:image/" + fmt + ";base64," + result.image;
+
+        // Store crop result
+        cropState.applied = true;
+        cropState.croppedImageBase64 = result.image;
+        cropState.croppedHotspots = result.hotspots;
+
+        // Update hotspot display
+        document.getElementById("htmlImageHotspotCount").textContent = result.hotspots.length + " button(s) / link(s)";
+
+        // Hide crop overlay
+        cropOverlay.style.display = "none";
+
+        document.getElementById("cropInfo").textContent = "✅ Cropped to " + cropW + "×" + cropH + "px — " + result.hotspots.length + " hotspot(s) in cropped area. Click 'Use in PDF Overlay' to embed.";
+        setStatus("statusHtmlImage", "success", "✅ Image cropped to " + cropW + "×" + cropH + "px with " + result.hotspots.length + " interactive hotspot(s).");
+      } catch (err) {
+        document.getElementById("cropInfo").textContent = "❌ Crop failed: " + err.message;
+      }
+    });
+
+    // ---- Button text search / matching feedback in overlay embed section ----
+    document.getElementById("embedImageButtonText").addEventListener("input", function() {
+      const searchText = this.value.trim().toLowerCase();
+      const matchEl = document.getElementById("embedImageButtonTextMatch");
+      const hotspotsJson = document.getElementById("embedImageHotspots").value;
+
+      if (!searchText || !hotspotsJson) {
+        matchEl.style.display = "none";
+        return;
+      }
+
+      try {
+        const hotspots = JSON.parse(hotspotsJson);
+        const matches = hotspots.filter(h => (h.text || "").toLowerCase().includes(searchText));
+
+        // Escape HTML to prevent XSS from hotspot text originating from DOM
+        function escHtml(str) {
+          return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        }
+
+        matchEl.style.display = "block";
+        if (matches.length > 0) {
+          matchEl.style.background = "#dcfce7";
+          matchEl.style.border = "1px solid #86efac";
+          matchEl.style.color = "#166534";
+          matchEl.innerHTML = "✅ <strong>" + matches.length + " button(s) matched:</strong> " +
+            matches.map(m => '"' + escHtml((m.text || "").slice(0, 30)) + '" (' + m.width + '×' + m.height + 'px)').join(", ");
+        } else {
+          matchEl.style.background = "#fef2f2";
+          matchEl.style.border = "1px solid #fca5a5";
+          matchEl.style.color = "#991b1b";
+          matchEl.innerHTML = "⚠️ No buttons match \"" + escHtml(this.value) + "\". Available: " +
+            hotspots.map(h => '"' + escHtml((h.text || "").slice(0, 20)) + '"').join(", ");
+        }
+      } catch (_) {
+        matchEl.style.display = "none";
+      }
     });
   </script>
 </body>

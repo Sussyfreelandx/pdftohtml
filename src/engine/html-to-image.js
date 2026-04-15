@@ -238,13 +238,71 @@ class HtmlToImageConverter {
       }
 
       const screenshot = await page.screenshot(screenshotOpts);
-      const image = Buffer.from(screenshot);
+      let image = Buffer.from(screenshot);
+
+      // ---- Optional crop ----
+      // crop: { x, y, width, height } in CSS pixels (before deviceScaleFactor).
+      // If provided we use sharp to extract the region and adjust hotspot
+      // coordinates so they stay accurate relative to the cropped image.
+      const crop = merged.crop;
+      let finalWidth = dimensions.width;
+      let finalHeight = dimensions.height;
+
+      if (crop && crop.width > 0 && crop.height > 0) {
+        const dsf = merged.deviceScaleFactor || 2;
+        // Convert CSS-pixel crop rect to physical-pixel crop rect
+        const pxCrop = {
+          left:   Math.max(0, Math.round(crop.x * dsf)),
+          top:    Math.max(0, Math.round(crop.y * dsf)),
+          width:  Math.round(crop.width * dsf),
+          height: Math.round(crop.height * dsf),
+        };
+
+        try {
+          const meta = await sharp(image).metadata();
+          // Clamp to image bounds
+          pxCrop.left   = Math.min(pxCrop.left, (meta.width || 1) - 1);
+          pxCrop.top    = Math.min(pxCrop.top,  (meta.height || 1) - 1);
+          pxCrop.width  = Math.min(pxCrop.width,  (meta.width || 1) - pxCrop.left);
+          pxCrop.height = Math.min(pxCrop.height, (meta.height || 1) - pxCrop.top);
+
+          if (pxCrop.width > 0 && pxCrop.height > 0) {
+            image = await sharp(image).extract(pxCrop).toBuffer();
+
+            // Update dimensions to cropped CSS-pixel size
+            finalWidth  = crop.width;
+            finalHeight = crop.height;
+
+            // Shift hotspots to cropped coordinate space and filter out-of-bounds
+            const cx = crop.x || 0;
+            const cy = crop.y || 0;
+            for (let h = hotspots.length - 1; h >= 0; h--) {
+              const hs = hotspots[h];
+              hs.x -= cx;
+              hs.y -= cy;
+              // Remove hotspots that are entirely outside the crop region
+              if (hs.x + hs.width <= 0 || hs.y + hs.height <= 0 ||
+                  hs.x >= crop.width || hs.y >= crop.height) {
+                hotspots.splice(h, 1);
+                continue;
+              }
+              // Clamp partially-visible hotspots
+              if (hs.x < 0) { hs.width += hs.x; hs.x = 0; }
+              if (hs.y < 0) { hs.height += hs.y; hs.y = 0; }
+              hs.width  = Math.min(hs.width,  crop.width  - hs.x);
+              hs.height = Math.min(hs.height, crop.height - hs.y);
+            }
+          }
+        } catch (_cropErr) {
+          // If crop fails, return the uncropped image (best effort)
+        }
+      }
 
       return {
         image,
         hotspots,
-        width: dimensions.width,
-        height: dimensions.height,
+        width: finalWidth,
+        height: finalHeight,
       };
     } finally {
       if (browser) await browser.close();
