@@ -417,8 +417,23 @@ class PdfOverlayEngine {
           const spotW = spot.width * scaleFactorX;
           const spotH = spot.height * scaleFactorY;
 
-          // Use the hotspot's own href if it has one, otherwise use the global ctaUrl
-          const linkUrl = spot.href || ctaUrl;
+          // Determine the link URL: use the hotspot's own href only if it's
+          // a valid absolute URL.  Relative paths, about:blank-resolved URLs,
+          // javascript: links, and empty strings are all ignored so the global
+          // ctaUrl is used instead.  This fixes the common case where HTML was
+          // rendered via setContent() and all relative hrefs resolve to
+          // about:blank/... which is invalid.
+          let spotHref = (spot.href || "").trim();
+          const INVALID_HREF_RE = /^(about:|javascript:|blob:|data:|#$)/i;
+          if (!spotHref || INVALID_HREF_RE.test(spotHref)) {
+            spotHref = "";
+          }
+          // If the href looks like a relative path (no protocol), skip it —
+          // it can't be used as an absolute URI in a PDF annotation.
+          if (spotHref && !/^https?:\/\//i.test(spotHref)) {
+            spotHref = "";
+          }
+          const linkUrl = spotHref || ctaUrl;
           if (!linkUrl) continue;
 
           const actionDict = context.obj({

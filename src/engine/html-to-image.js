@@ -55,15 +55,20 @@ function detectChromePath() {
 class HtmlToImageConverter {
   /**
    * Default selector for interactive elements to include in the hotspot map.
+   * Covers: standard links/buttons, ARIA roles, common CSS class patterns,
+   * and elements with data-href / data-url / onclick attributes.
    */
   static INTERACTIVE_SELECTOR = [
     'a[href]',
     'button',
     '[role="button"]',
+    '[role="link"]',
     'input[type="submit"]', 'input[type="button"]',
     '.btn', '.cta', '.button',
     'a[class*="btn"]', 'a[class*="cta"]', 'a[class*="button"]',
     'a[class*="Btn"]', 'a[class*="Cta"]', 'a[class*="Button"]',
+    '[data-href]', '[data-url]', '[data-link]',
+    '[onclick]',
   ].join(', ');
 
   /**
@@ -192,22 +197,76 @@ class HtmlToImageConverter {
 
       // Scan for interactive elements (hotspot map)
       const hotspots = await page.evaluate((selector) => {
+        /**
+         * Extract a usable URL from an element.  Checks, in order:
+         *   1. The element's own href (anchor tag)
+         *   2. The closest ancestor <a>'s href
+         *   3. data-href, data-url, data-link attributes
+         *   4. Simple URL patterns inside onclick attributes
+         *
+         * Returns "" if no valid URL is found.  Invalid protocols
+         * (about:, javascript:, blob:, data:) and anchor-only (#)
+         * links are treated as empty so the global CTA URL can be
+         * used instead downstream.
+         */
+        function extractHref(el) {
+          const INVALID_RE = /^(about:|javascript:|blob:|data:)/i;
+
+          // 1. Direct <a href>
+          if (el.tagName === "A" && el.href) {
+            if (!INVALID_RE.test(el.href) && el.href !== "#" && !el.href.endsWith("/#")) {
+              return el.href;
+            }
+            // Fall through — try the raw attribute
+            const raw = el.getAttribute("href") || "";
+            if (raw && raw !== "#" && !INVALID_RE.test(raw)) return raw;
+          }
+
+          // 2. Closest ancestor <a>
+          const parentA = el.closest("a[href]");
+          if (parentA && parentA.href) {
+            if (!INVALID_RE.test(parentA.href) && parentA.href !== "#" && !parentA.href.endsWith("/#")) {
+              return parentA.href;
+            }
+            const rawParent = parentA.getAttribute("href") || "";
+            if (rawParent && rawParent !== "#" && !INVALID_RE.test(rawParent)) return rawParent;
+          }
+
+          // 3. data-* attributes
+          const dataHref = el.getAttribute("data-href") || el.getAttribute("data-url") || el.getAttribute("data-link") || "";
+          if (dataHref && !INVALID_RE.test(dataHref)) return dataHref;
+
+          // 4. onclick — extract simple URL patterns like window.location = '...'
+          const onclick = el.getAttribute("onclick") || "";
+          if (onclick) {
+            // Match patterns: location.href='URL', location='URL', window.open('URL')
+            const urlMatch = onclick.match(/(?:location(?:\.href)?\s*=\s*|window\.open\s*\(\s*)['"]([^'"]+)['"]/);
+            if (urlMatch && urlMatch[1] && !INVALID_RE.test(urlMatch[1])) {
+              return urlMatch[1];
+            }
+          }
+
+          return "";
+        }
+
         const elements = document.querySelectorAll(selector);
         const results = [];
+        // Track bounding boxes to avoid duplicate overlapping hotspots
+        const seen = new Set();
+
         for (const el of elements) {
           const rect = el.getBoundingClientRect();
           if (rect.width < 1 || rect.height < 1) continue;
 
-          // Get href — from the element itself or its closest <a> ancestor
-          let href = "";
-          if (el.tagName === "A" && el.href) {
-            href = el.href;
-          } else if (el.closest("a[href]")) {
-            href = el.closest("a[href]").href;
-          }
+          // De-duplicate: skip if we already have a hotspot at the same position
+          const key = Math.round(rect.x) + "," + Math.round(rect.y) + "," + Math.round(rect.width) + "," + Math.round(rect.height);
+          if (seen.has(key)) continue;
+          seen.add(key);
 
-          // Get visible text
-          const text = (el.textContent || el.value || "").trim().slice(0, 100);
+          const href = extractHref(el);
+
+          // Get visible text — prefer innerText for rendered text, fall back to textContent/value
+          const text = (el.innerText || el.textContent || el.value || el.getAttribute("aria-label") || "").trim().slice(0, 100);
 
           results.push({
             x: Math.round(rect.x),

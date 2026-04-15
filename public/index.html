@@ -247,6 +247,7 @@
     <button class="tab-btn active" data-tab="upload">Upload HTML</button>
     <button class="tab-btn" data-tab="url">URL → PDF</button>
     <button class="tab-btn" data-tab="htmlimage">HTML → Image</button>
+    <button class="tab-btn" data-tab="htmlpreview">HTML Preview</button>
     <button class="tab-btn" data-tab="overlay">PDF Overlay</button>
     <button class="tab-btn" data-tab="batch">Batch Overlay</button>
     <button class="tab-btn" data-tab="merge">Merge PDFs</button>
@@ -500,6 +501,57 @@
     </div>
 
     <!-- ============================================================ -->
+    <!-- TAB: HTML Preview (paste raw HTML → real-time preview → overlay) -->
+    <!-- ============================================================ -->
+    <div class="card" id="tab-htmlpreview">
+      <h2>HTML Preview</h2>
+      <p class="subtitle">Paste raw HTML code below and see a real-time rendered preview. When satisfied, capture it as an image and use it directly in PDF Overlay — buttons and links are automatically detected.</p>
+
+      <label for="htmlPreviewCode">HTML Code</label>
+      <textarea id="htmlPreviewCode" rows="10" placeholder='<html>
+<body style="font-family: Arial, sans-serif; padding: 40px;">
+  <h1>My Landing Page</h1>
+  <p>Preview your HTML in real-time below.</p>
+  <a href="https://example.com" class="btn" style="display:inline-block; padding:12px 24px; background:#2563EB; color:#fff; text-decoration:none; border-radius:8px;">Sign Up Now</a>
+</body>
+</html>'></textarea>
+      <div style="font-size: 11px; color: #888; margin-top: 2px;">
+        Paste a full HTML document or snippet. The preview updates automatically as you type.
+      </div>
+
+      <div style="margin-top: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <h3 style="margin: 0;">🔍 Live Preview</h3>
+          <div>
+            <button class="btn" id="btnHtmlPreviewCapture" style="padding: 8px 16px; font-size: 13px; margin-right: 8px; background: #7c3aed; color: #fff;">📸 Capture as Image</button>
+            <button class="btn" id="btnHtmlPreviewUseOverlay" style="padding: 8px 16px; font-size: 13px; background: #059669; color: #fff;" disabled>📄 Use in PDF Overlay</button>
+          </div>
+        </div>
+        <div style="border: 1px solid #d1d5db; border-radius: 8px; overflow: hidden; background: #fff;">
+          <iframe id="htmlPreviewFrame" sandbox="allow-same-origin" style="width: 100%; height: 400px; border: none;"></iframe>
+        </div>
+      </div>
+
+      <div class="status" id="statusHtmlPreview"></div>
+
+      <!-- Captured image preview (shown after capture) -->
+      <div id="htmlPreviewImageSection" style="display: none; margin-top: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <h3 style="margin: 0;">🖼️ Captured Image</h3>
+          <button class="btn" id="btnHtmlPreviewDownload" style="padding: 8px 16px; font-size: 13px;">⬇ Download</button>
+        </div>
+        <div style="border: 1px solid #d1d5db; border-radius: 8px; overflow: auto; max-height: 400px; background: #f9fafb;">
+          <img id="htmlPreviewCapturedImg" style="max-width: 100%; display: block;">
+        </div>
+        <div style="margin-top: 8px; padding: 10px; background: #f0f9ff; border-radius: 8px; border: 1px solid #bae6fd;">
+          <strong style="color: #0369a1;">🎯 Hotspots Detected:</strong>
+          <span id="htmlPreviewHotspotCount">0</span>
+          <div id="htmlPreviewHotspotList" style="margin-top: 6px; font-size: 13px; max-height: 120px; overflow-y: auto;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
     <!-- TAB 3: PDF Overlay (upload PDF → blur + CTA)                  -->
     <!-- ============================================================ -->
     <div class="card" id="tab-overlay">
@@ -572,6 +624,7 @@
             <option value="softfocus">🔍 Soft Focus</option>
             <option value="pixelate">🟩 Pixelate (Mosaic)</option>
           </select>
+          <div id="blurStyleDesc" style="font-size: 11px; color: #666; margin-top: 3px; line-height: 1.4;">Elegant frosted-glass effect — blurs content with a subtle brightness lift and mild desaturation for a premium, translucent appearance.</div>
         </div>
         <div>
           <label for="overlayOpacity">Overlay Tint Strength</label>
@@ -1129,6 +1182,10 @@
       el.className = "status";
       el.innerHTML = "";
     }
+    // Escape HTML special characters to prevent XSS when inserting user text into innerHTML
+    function escHtml(str) {
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
 
     // ---- CSRF Token Helper ----
     // All POST requests must include a CSRF token for bot protection.
@@ -1170,6 +1227,19 @@
       const customWrapper = document.getElementById("blurPagesCustomWrapper");
       customWrapper.style.display = preset === "custom" ? "block" : "none";
     }
+
+    // Blur style descriptions — update the hint text when the user selects a style
+    const blurStyleDescriptions = {
+      glass: "Elegant frosted-glass effect — blurs content with a subtle brightness lift and mild desaturation for a premium, translucent appearance.",
+      heavyglass: "Double-pass heavy frost — applies two rounds of blur with significant desaturation for an opaque, milky-glass look that strongly obscures text.",
+      standard: "Classic Gaussian blur — a clean, even blur that smoothly softens all content without any color or brightness adjustments.",
+      cinematic: "Film-inspired look — moderate blur with warm tone shift and gamma adjustment, creating a dramatic, movie-poster effect.",
+      softfocus: "Portrait-style soft focus — gentle blur with a slight brightness boost. Text remains partially recognisable, like a soft-focus camera lens.",
+      pixelate: "Mosaic privacy effect — downscales and upscales the image to create a blocky pixelated look, similar to face-blurring in news footage.",
+    };
+    document.getElementById("blurStyle").addEventListener("change", function() {
+      document.getElementById("blurStyleDesc").textContent = blurStyleDescriptions[this.value] || "";
+    });
     function downloadBlob(blob, filename) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -1939,9 +2009,9 @@
           listEl.innerHTML = result.hotspots.map((h, i) =>
             '<div style="padding: 4px 0; border-bottom: 1px solid #e0e7ff;">' +
             '<strong>#' + (i + 1) + '</strong> ' +
-            '<code>&lt;' + h.tagName + '&gt;</code> ' +
-            '"' + (h.text || "").slice(0, 30) + '" ' +
-            (h.href ? ' → <a href="' + h.href + '" target="_blank" style="color:#0369a1;">' + h.href.slice(0, 40) + '…</a>' : '<em style="color:#888;">no link</em>') +
+            '<code>&lt;' + escHtml(h.tagName) + '&gt;</code> ' +
+            '"' + escHtml((h.text || "").slice(0, 30)) + '" ' +
+            (h.href ? ' → <a href="' + escHtml(h.href) + '" target="_blank" style="color:#0369a1;">' + escHtml(h.href.slice(0, 40)) + '…</a>' : '<em style="color:#888;">no link — will use CTA URL</em>') +
             ' <span style="color:#888;">(' + h.width + '×' + h.height + 'px)</span>' +
             '</div>'
           ).join("");
@@ -2194,11 +2264,6 @@
         const hotspots = JSON.parse(hotspotsJson);
         const matches = hotspots.filter(h => (h.text || "").toLowerCase().includes(searchText));
 
-        // Escape HTML to prevent XSS from hotspot text originating from DOM
-        function escHtml(str) {
-          return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-        }
-
         matchEl.style.display = "block";
         if (matches.length > 0) {
           matchEl.style.background = "#dcfce7";
@@ -2216,6 +2281,140 @@
       } catch (_) {
         matchEl.style.display = "none";
       }
+    });
+
+    // ---- HTML Preview Tab ----
+    let lastHtmlPreviewResult = null;
+
+    // Real-time preview — update the iframe as the user types
+    const htmlPreviewCode = document.getElementById("htmlPreviewCode");
+    const htmlPreviewFrame = document.getElementById("htmlPreviewFrame");
+    let previewDebounceTimer = null;
+
+    function updateHtmlPreview() {
+      const html = htmlPreviewCode.value;
+      if (!html.trim()) {
+        htmlPreviewFrame.srcdoc = '<html><body style="display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-family:sans-serif;"><p>Paste HTML code above to see a live preview…</p></body></html>';
+        return;
+      }
+      htmlPreviewFrame.srcdoc = html;
+    }
+
+    htmlPreviewCode.addEventListener("input", () => {
+      clearTimeout(previewDebounceTimer);
+      previewDebounceTimer = setTimeout(updateHtmlPreview, 300);
+    });
+
+    // Initialize preview with placeholder
+    updateHtmlPreview();
+
+    // Capture as Image — send the HTML to the server for screenshot + hotspot detection
+    document.getElementById("btnHtmlPreviewCapture").addEventListener("click", async () => {
+      const html = htmlPreviewCode.value.trim();
+      if (!html) {
+        setStatus("statusHtmlPreview", "error", "❌ Please paste some HTML code first.");
+        return;
+      }
+
+      const btn = document.getElementById("btnHtmlPreviewCapture");
+      btn.disabled = true;
+      setStatus("statusHtmlPreview", "info", '<span class="spinner"></span> Capturing preview as image…');
+
+      try {
+        const res = await secureFetch("/convert/image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            html: html,
+            options: { format: "png", width: 1280, fullPage: true },
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: res.statusText }));
+          throw new Error(err.error || "Server error");
+        }
+
+        const result = await res.json();
+        lastHtmlPreviewResult = result;
+
+        // Show the captured image
+        const fmt = result.format || "png";
+        document.getElementById("htmlPreviewCapturedImg").src = "data:image/" + fmt + ";base64," + result.image;
+        document.getElementById("htmlPreviewHotspotCount").textContent = result.hotspots.length + " button(s) / link(s)";
+
+        // Show hotspot list
+        const listEl = document.getElementById("htmlPreviewHotspotList");
+        if (result.hotspots.length > 0) {
+          listEl.innerHTML = result.hotspots.map((h, i) =>
+            '<div style="padding: 3px 0; border-bottom: 1px solid #e0e7ff;">' +
+            '<strong>#' + (i + 1) + '</strong> ' +
+            '<code>&lt;' + escHtml(h.tagName) + '&gt;</code> ' +
+            '"' + escHtml((h.text || "").slice(0, 30)) + '" ' +
+            (h.href ? ' → <span style="color:#0369a1;">' + escHtml(h.href.slice(0, 50)) + '</span>' : '<em style="color:#888;">no link — will use CTA URL</em>') +
+            ' <span style="color:#888;">(' + h.width + '×' + h.height + 'px)</span>' +
+            '</div>'
+          ).join("");
+        } else {
+          listEl.innerHTML = '<em style="color:#888;">No interactive elements detected.</em>';
+        }
+
+        document.getElementById("htmlPreviewImageSection").style.display = "block";
+        document.getElementById("btnHtmlPreviewUseOverlay").disabled = false;
+        setStatus("statusHtmlPreview", "success", "✅ Captured — " + result.width + "×" + result.height + "px with " + result.hotspots.length + " hotspot(s). Click 'Use in PDF Overlay' to embed.");
+      } catch (err) {
+        setStatus("statusHtmlPreview", "error", "❌ " + err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    // Download captured image
+    document.getElementById("btnHtmlPreviewDownload").addEventListener("click", () => {
+      if (!lastHtmlPreviewResult) return;
+      const fmt = lastHtmlPreviewResult.format || "png";
+      const binary = atob(lastHtmlPreviewResult.image);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: "image/" + fmt });
+      downloadBlob(blob, "html-preview." + fmt);
+    });
+
+    // Use in PDF Overlay — transfer the captured image + hotspots to the overlay tab
+    document.getElementById("btnHtmlPreviewUseOverlay").addEventListener("click", () => {
+      if (!lastHtmlPreviewResult) return;
+
+      const fmt = lastHtmlPreviewResult.format || "png";
+      const binary = atob(lastHtmlPreviewResult.image);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: "image/" + fmt });
+      const file = new File([blob], "html-preview." + fmt, { type: "image/" + fmt });
+
+      // Set as the embed image file in the overlay tab
+      selectedEmbedImageFile = file;
+      embedImageFileNameEl.textContent = "✅ html-preview." + fmt + " (" + (blob.size / 1024).toFixed(1) + " KB) — from HTML Preview";
+
+      // Transfer hotspot data
+      if (lastHtmlPreviewResult.hotspots && lastHtmlPreviewResult.hotspots.length > 0) {
+        document.getElementById("embedImageHotspots").value = JSON.stringify(lastHtmlPreviewResult.hotspots);
+      } else {
+        document.getElementById("embedImageHotspots").value = "";
+      }
+
+      // Switch to the Overlay tab
+      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".card").forEach(c => c.classList.remove("active"));
+      const overlayTab = document.querySelector('[data-tab="overlay"]');
+      overlayTab.classList.add("active");
+      document.getElementById("tab-overlay").classList.add("active");
+
+      // Open the embed image details section
+      const embedDetails = document.getElementById("dropZoneEmbedImage").closest("details");
+      if (embedDetails) embedDetails.open = true;
+      embedDetails.scrollIntoView({ behavior: "smooth", block: "center" });
+
+      setStatus("statusOverlay", "info", "🖼️ Image from HTML Preview loaded — configure overlay settings and click Preview to generate.");
     });
   </script>
 </body>
