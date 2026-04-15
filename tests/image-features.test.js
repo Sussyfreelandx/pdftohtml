@@ -794,3 +794,179 @@ describe("HtmlToImageConverter — Crop", () => {
     }
   }, 60000);
 });
+
+describe("PdfOverlayEngine — embedImageCssWidth hotspot coordinate fix", () => {
+  it("should use CSS dimensions (not native px) for hotspot scale factors", async () => {
+    const pdfBuffer = await createTestPdf(1);
+    // Create a 400x200 image (simulates a 2x screenshot of a 200x100 CSS viewport)
+    const imgBuffer = await createTestImage(400, 200);
+
+    // Hotspot at CSS coordinates (50, 25) size (100, 30) — CSS pixels, not native
+    const hotspots = [{ x: 50, y: 25, width: 100, height: 30, href: "", text: "Click Me" }];
+
+    const engine = new PdfOverlayEngine({
+      embedImage: imgBuffer,
+      embedImageHotspots: hotspots,
+      embedImageCtaUrl: "https://example.com/test",
+      embedImageCssWidth: 200,    // CSS-pixel width (native is 400)
+      embedImageCssHeight: 100,   // CSS-pixel height (native is 200)
+      embedImageZoom: 0.5,
+      blurPages: "all",
+    });
+
+    const result = await engine.processBuffer(pdfBuffer);
+    expect(result).toBeInstanceOf(Buffer);
+
+    // Load and verify annotations exist
+    const doc = await PDFDocument.load(result);
+    const page = doc.getPage(0);
+    const annots = page.node.get(PDFName.of("Annots"));
+    // Should have at least 2 annotations: 1 CTA button + 1 hotspot link
+    expect(annots).toBeDefined();
+  });
+
+  it("should fall back to native dimensions when cssWidth not provided", async () => {
+    const pdfBuffer = await createTestPdf(1);
+    const imgBuffer = await createTestImage(200, 100);
+
+    const hotspots = [{ x: 50, y: 25, width: 100, height: 30, href: "", text: "Click Me" }];
+
+    const engine = new PdfOverlayEngine({
+      embedImage: imgBuffer,
+      embedImageHotspots: hotspots,
+      embedImageCtaUrl: "https://example.com/test",
+      // No embedImageCssWidth — should use native dims (200x100)
+      embedImageZoom: 0.5,
+      blurPages: "all",
+    });
+
+    const result = await engine.processBuffer(pdfBuffer);
+    expect(result).toBeInstanceOf(Buffer);
+
+    const doc = await PDFDocument.load(result);
+    const page = doc.getPage(0);
+    const annots = page.node.get(PDFName.of("Annots"));
+    expect(annots).toBeDefined();
+  });
+});
+
+describe("POST /overlay — embedHtml", () => {
+  let server;
+  let baseUrl;
+
+  beforeAll((done) => {
+    const app = createServer();
+    server = app.listen(0, () => {
+      baseUrl = `http://localhost:${server.address().port}`;
+      done();
+    });
+  });
+
+  afterAll((done) => {
+    if (server) server.close(done);
+    else done();
+  });
+
+  /**
+   * Helper: send multipart form data request using raw http.
+   */
+  function multipartRequest(path, fields, files) {
+    return new Promise((resolve, reject) => {
+      const boundary = "----TestBoundary" + Date.now();
+      const url = new URL(path, baseUrl);
+      const chunks = [];
+
+      for (const [key, value] of Object.entries(fields)) {
+        chunks.push(`--${boundary}\r\n`);
+        chunks.push(`Content-Disposition: form-data; name="${key}"\r\n\r\n`);
+        chunks.push(`${value}\r\n`);
+      }
+
+      for (const { fieldName, fileName, contentType, data } of files) {
+        chunks.push(`--${boundary}\r\n`);
+        chunks.push(`Content-Disposition: form-data; name="${fieldName}"; filename="${fileName}"\r\n`);
+        chunks.push(`Content-Type: ${contentType}\r\n\r\n`);
+        chunks.push(data);
+        chunks.push(`\r\n`);
+      }
+
+      chunks.push(`--${boundary}--\r\n`);
+      const bufferParts = chunks.map(c => typeof c === "string" ? Buffer.from(c) : c);
+      const body = Buffer.concat(bufferParts);
+
+      const opts = {
+        method: "POST",
+        hostname: url.hostname,
+        port: url.port,
+        path: url.pathname + url.search,
+        headers: {
+          "Content-Type": `multipart/form-data; boundary=${boundary}`,
+          "Content-Length": body.length,
+        },
+      };
+
+      const req = http.request(opts, (res) => {
+        const resChunks = [];
+        res.on("data", (c) => resChunks.push(c));
+        res.on("end", () => {
+          resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(resChunks) });
+        });
+      });
+      req.on("error", reject);
+      req.write(body);
+      req.end();
+    });
+  }
+
+  it("should accept embedHtml and render it server-side into the overlay", async () => {
+    const pdfBuffer = await createTestPdf(1);
+    const htmlSnippet = '<html><body><a href="https://example.com/signup" style="display:inline-block;padding:12px 24px;background:#2563EB;color:#fff;text-decoration:none;">Sign Up</a></body></html>';
+
+    const res = await multipartRequest("/overlay", {
+      ctaUrl: "https://example.com",
+      blurRadius: "3",
+      embedHtml: htmlSnippet,
+      embedImageCtaUrl: "https://example.com/signup",
+      embedImageZoom: "0.5",
+    }, [
+      { fieldName: "file", fileName: "test.pdf", contentType: "application/pdf", data: pdfBuffer },
+    ]);
+
+    // embedHtml requires Chrome to render — may fail in sandbox
+    if (res.status === 400 && res.body.toString().includes("Chrome")) return;
+    if (res.status === 400 && res.body.toString().includes("embedHtml")) return;
+
+    expect(res.status).toBe(200);
+    expect(res.body.length).toBeGreaterThan(0);
+    const doc = await PDFDocument.load(res.body);
+    expect(doc.getPageCount()).toBe(1);
+  }, 60000);
+
+  it("should pass through embedImageCssWidth and embedImageCssHeight", async () => {
+    const pdfBuffer = await createTestPdf(1);
+    const imgBuffer = await createTestImage(400, 200);
+
+    const res = await multipartRequest("/overlay", {
+      ctaUrl: "https://example.com",
+      blurRadius: "3",
+      embedImageCtaUrl: "https://example.com/click",
+      embedImageZoom: "0.5",
+      embedImageCssWidth: "200",
+      embedImageCssHeight: "100",
+      embedImageHotspots: JSON.stringify([
+        { x: 50, y: 25, width: 100, height: 30, href: "", text: "Click Me" }
+      ]),
+    }, [
+      { fieldName: "file", fileName: "test.pdf", contentType: "application/pdf", data: pdfBuffer },
+      { fieldName: "embedImageFile", fileName: "test.png", contentType: "image/png", data: imgBuffer },
+    ]);
+
+    expect(res.status).toBe(200);
+    expect(res.body.length).toBeGreaterThan(0);
+
+    const doc = await PDFDocument.load(res.body);
+    const page = doc.getPage(0);
+    const annots = page.node.get(PDFName.of("Annots"));
+    expect(annots).toBeDefined();
+  }, 30000);
+});

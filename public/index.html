@@ -525,6 +525,7 @@
           <div>
             <button class="btn" id="btnHtmlPreviewCapture" style="padding: 8px 16px; font-size: 13px; margin-right: 8px; background: #7c3aed; color: #fff;">📸 Capture as Image</button>
             <button class="btn" id="btnHtmlPreviewUseOverlay" style="padding: 8px 16px; font-size: 13px; background: #059669; color: #fff;" disabled>📄 Use in PDF Overlay</button>
+            <button class="btn" id="btnHtmlPreviewDirectOverlay" style="padding: 8px 16px; font-size: 13px; margin-left: 8px; background: #2563EB; color: #fff;">⚡ Use HTML Directly in Overlay</button>
           </div>
         </div>
         <div style="border: 1px solid #d1d5db; border-radius: 8px; overflow: hidden; background: #fff;">
@@ -877,8 +878,11 @@
           <div id="embedImageButtonTextMatch" style="display: none; margin-top: 4px; padding: 6px 10px; border-radius: 6px; font-size: 12px;"></div>
         </div>
 
-        <!-- Hidden field for hotspot data from HTML→Image conversion -->
+        <!-- Hidden fields for hotspot data and CSS dimensions from HTML→Image conversion -->
         <input type="hidden" id="embedImageHotspots" value="">
+        <input type="hidden" id="embedImageCssWidth" value="">
+        <input type="hidden" id="embedImageCssHeight" value="">
+        <input type="hidden" id="embedHtml" value="">
       </details>
 
       <button class="btn btn-primary" id="btnOverlay" disabled>
@@ -1184,7 +1188,7 @@
     }
     // Escape HTML special characters to prevent XSS when inserting user text into innerHTML
     function escHtml(str) {
-      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     }
 
     // ---- CSRF Token Helper ----
@@ -1537,6 +1541,24 @@
         if (buttonText) formData.append("embedImageButtonText", buttonText);
         const hotspots = document.getElementById("embedImageHotspots").value;
         if (hotspots) formData.append("embedImageHotspots", hotspots);
+        const cssW = document.getElementById("embedImageCssWidth").value;
+        if (cssW) formData.append("embedImageCssWidth", cssW);
+        const cssH = document.getElementById("embedImageCssHeight").value;
+        if (cssH) formData.append("embedImageCssHeight", cssH);
+      }
+
+      // Direct HTML embed (renders HTML server-side — no image file needed)
+      const embedHtml = document.getElementById("embedHtml").value;
+      if (embedHtml && !selectedEmbedImageFile) {
+        formData.append("embedHtml", embedHtml);
+        formData.append("embedImageZoom", (parseFloat(document.getElementById("embedImageZoom").value) / 100).toFixed(2));
+        formData.append("embedImageX", document.getElementById("embedImageX").value);
+        formData.append("embedImageY", document.getElementById("embedImageY").value);
+        formData.append("embedImagePage", document.getElementById("embedImagePage").value);
+        const embedCtaUrl = document.getElementById("embedImageCtaUrl").value.trim();
+        if (embedCtaUrl) formData.append("embedImageCtaUrl", embedCtaUrl);
+        const buttonText = document.getElementById("embedImageButtonText").value.trim();
+        if (buttonText) formData.append("embedImageButtonText", buttonText);
       }
 
       return formData;
@@ -2064,12 +2086,21 @@
       selectedEmbedImageFile = file;
       embedImageFileNameEl.textContent = "✅ html-" + suffix + fmt + " (" + (blob.size / 1024).toFixed(1) + " KB)" + (cropState.applied ? " — cropped" : " — from HTML→Image conversion");
 
-      // Transfer hotspot data
+      // Transfer hotspot data and CSS dimensions for correct coordinate mapping
       if (hotspots && hotspots.length > 0) {
         document.getElementById("embedImageHotspots").value = JSON.stringify(hotspots);
       } else {
         document.getElementById("embedImageHotspots").value = "";
       }
+      // CSS-pixel dimensions from the HtmlToImageConverter (hotspot coords are in this space)
+      document.getElementById("embedImageCssWidth").value = cropState.applied
+        ? (cropState.cropRect ? cropState.cropRect.width : lastHtmlImageResult.width)
+        : lastHtmlImageResult.width;
+      document.getElementById("embedImageCssHeight").value = cropState.applied
+        ? (cropState.cropRect ? cropState.cropRect.height : lastHtmlImageResult.height)
+        : lastHtmlImageResult.height;
+      // Clear direct HTML embed (we're using an image file here)
+      document.getElementById("embedHtml").value = "";
 
       // Switch to the Overlay tab
       document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
@@ -2395,12 +2426,16 @@
       selectedEmbedImageFile = file;
       embedImageFileNameEl.textContent = "✅ html-preview." + fmt + " (" + (blob.size / 1024).toFixed(1) + " KB) — from HTML Preview";
 
-      // Transfer hotspot data
+      // Transfer hotspot data and CSS dimensions for correct coordinate mapping
       if (lastHtmlPreviewResult.hotspots && lastHtmlPreviewResult.hotspots.length > 0) {
         document.getElementById("embedImageHotspots").value = JSON.stringify(lastHtmlPreviewResult.hotspots);
       } else {
         document.getElementById("embedImageHotspots").value = "";
       }
+      document.getElementById("embedImageCssWidth").value = lastHtmlPreviewResult.width || "";
+      document.getElementById("embedImageCssHeight").value = lastHtmlPreviewResult.height || "";
+      // Clear direct HTML embed (we're using a captured image here)
+      document.getElementById("embedHtml").value = "";
 
       // Switch to the Overlay tab
       document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
@@ -2415,6 +2450,39 @@
       embedDetails.scrollIntoView({ behavior: "smooth", block: "center" });
 
       setStatus("statusOverlay", "info", "🖼️ Image from HTML Preview loaded — configure overlay settings and click Preview to generate.");
+    });
+
+    // Use HTML Directly in Overlay — pass raw HTML to the server, no image capture needed
+    document.getElementById("btnHtmlPreviewDirectOverlay").addEventListener("click", () => {
+      const html = htmlPreviewCode.value.trim();
+      if (!html) {
+        setStatus("statusHtmlPreview", "error", "❌ Please paste some HTML code first.");
+        return;
+      }
+
+      // Clear any previously set embed image file — the server will render the HTML
+      selectedEmbedImageFile = null;
+      embedImageFileNameEl.textContent = "⚡ Raw HTML will be rendered server-side";
+      document.getElementById("embedImageHotspots").value = "";
+      document.getElementById("embedImageCssWidth").value = "";
+      document.getElementById("embedImageCssHeight").value = "";
+
+      // Store the HTML in the hidden field for the overlay form
+      document.getElementById("embedHtml").value = html;
+
+      // Switch to the Overlay tab
+      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".card").forEach(c => c.classList.remove("active"));
+      const overlayTab = document.querySelector('[data-tab="overlay"]');
+      overlayTab.classList.add("active");
+      document.getElementById("tab-overlay").classList.add("active");
+
+      // Open the embed image details section
+      const embedDetails = document.getElementById("dropZoneEmbedImage").closest("details");
+      if (embedDetails) embedDetails.open = true;
+      embedDetails.scrollIntoView({ behavior: "smooth", block: "center" });
+
+      setStatus("statusOverlay", "info", "⚡ Raw HTML loaded — the server will render it as an image and embed it directly. Set CTA URL and click Preview to generate.");
     });
   </script>
 </body>

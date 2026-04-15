@@ -164,7 +164,7 @@ function createServer(options = {}) {
         "POST /convert/url":       "Convert a URL to PDF (body: { url, options: { ctaUrl, ctaSelector, crop: {x,y,width,height} } })",
         "POST /convert/image":     "Convert HTML string to image with interactive hotspot map (body: { html, options: { crop: {x,y,width,height} } })",
         "POST /convert/image/url": "Convert a URL to image with interactive hotspot map (body: { url, options: { crop: {x,y,width,height} } })",
-        "POST /overlay":           "Upload a PDF, blur it, add a clickable CTA (multipart/form-data). Supports image embed with zoom & floating placement.",
+        "POST /overlay":           "Upload a PDF, blur it, add a clickable CTA (multipart/form-data). Supports image embed with zoom & floating placement, or direct HTML embed via embedHtml field.",
         "POST /overlay/batch":     "Process multiple PDFs with the same overlay settings (multipart/form-data)",
         "POST /merge":             "Merge multiple PDFs into one (multipart/form-data, field: 'files')",
       },
@@ -461,6 +461,10 @@ function createServer(options = {}) {
    *   embedImageHotspots – JSON string of hotspot regions: [{ x, y, width, height, href, text }]
    *   embedImageCtaUrl – URL to inject into button-like hotspots on the embedded image
    *   embedImageButtonText – Search text to match against hotspot labels (case-insensitive). Only hotspots containing this text receive the link.
+   *   embedImageCssWidth  – CSS-pixel width of the source image (for correct hotspot mapping when image was captured at 2x DPI)
+   *   embedImageCssHeight – CSS-pixel height of the source image
+   *   embedHtml           – Raw HTML string to render server-side and embed as an image (alternative to embedImageFile). Links/buttons are auto-detected.
+   *   embedHtmlWidth      – Viewport width for HTML rendering (default: 1280)
    */
   app.post("/overlay", upload.fields([
     { name: "file", maxCount: 1 },
@@ -519,6 +523,30 @@ function createServer(options = {}) {
           overrides.embedImageHotspots = JSON.parse(req.body.embedImageHotspots);
         } catch (_) {
           console.warn("Invalid embedImageHotspots JSON — ignoring hotspot data");
+        }
+      }
+      if (req.body.embedImageCssWidth) overrides.embedImageCssWidth = parseFloat(req.body.embedImageCssWidth);
+      if (req.body.embedImageCssHeight) overrides.embedImageCssHeight = parseFloat(req.body.embedImageCssHeight);
+
+      // ---- Direct HTML embed: convert HTML → image server-side ----
+      // If embedHtml is provided (raw HTML string) and no image file was uploaded,
+      // render the HTML to an image with hotspot detection, then inject the result
+      // as the embedded image.  If both embedImageFile and embedHtml are provided,
+      // the uploaded image file takes precedence (embedHtml is ignored).
+      if (req.body.embedHtml && !overrides.embedImage) {
+        try {
+          const htmlResult = await imageConverter.convertHtmlToImage(req.body.embedHtml, {
+            format: "png",
+            width: parseInt(req.body.embedHtmlWidth, 10) || 1280,
+            fullPage: true,
+          });
+          overrides.embedImage = htmlResult.image;
+          overrides.embedImageHotspots = htmlResult.hotspots;
+          overrides.embedImageCssWidth = htmlResult.width;
+          overrides.embedImageCssHeight = htmlResult.height;
+        } catch (htmlErr) {
+          console.error("embedHtml conversion failed:", htmlErr.message);
+          return res.status(400).json({ error: "Failed to render embedHtml: " + htmlErr.message });
         }
       }
 

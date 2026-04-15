@@ -71,6 +71,8 @@ class PdfOverlayEngine {
    * @param {Array}   [options.embedImageHotspots]         – Interactive regions: [{ x, y, width, height, href, text }] in original image pixels
    * @param {string}  [options.embedImageCtaUrl]           – URL to inject into all detected button hotspots on the embedded image
    * @param {string}  [options.embedImageButtonText]       – Search text to match against hotspot labels. Only hotspots whose text contains this value (case-insensitive) receive the link — enables precise targeting of a specific button in the image.
+   * @param {number}  [options.embedImageCssWidth]         – CSS-pixel width of the source image (before deviceScaleFactor). Used to correctly map hotspot coordinates which are in CSS pixels.
+   * @param {number}  [options.embedImageCssHeight]        – CSS-pixel height of the source image (before deviceScaleFactor).
    */
   constructor(options = {}) {
     this.blurRadius = options.blurRadius ?? 5;
@@ -112,6 +114,8 @@ class PdfOverlayEngine {
     this.embedImageHotspots = options.embedImageHotspots || [];
     this.embedImageCtaUrl = options.embedImageCtaUrl || "";
     this.embedImageButtonText = options.embedImageButtonText || "";
+    this.embedImageCssWidth = options.embedImageCssWidth || 0;
+    this.embedImageCssHeight = options.embedImageCssHeight || 0;
   }
 
   // Maximum output file size in bytes (1 MB).
@@ -402,9 +406,20 @@ class PdfOverlayEngine {
           });
         }
 
-        // Scale factors from original image pixels to PDF points
-        const scaleFactorX = scaledW / imgNativeW;
-        const scaleFactorY = scaledH / imgNativeH;
+        // Scale factors from hotspot coordinate space to PDF points.
+        // Hotspot coordinates come from getBoundingClientRect() and are in
+        // CSS pixels (1x scale).  The native image dimensions (imgNativeW/H)
+        // are in physical pixels which may be 2x or higher due to
+        // deviceScaleFactor.  If the caller provides embedImageCssWidth/Height
+        // (the CSS-pixel viewport size), we use that as the hotspot reference
+        // so coordinates map correctly.  Otherwise we fall back to native
+        // dimensions — this is correct for manually uploaded images where
+        // the hotspot coordinates are already in native-pixel space (no
+        // deviceScaleFactor scaling involved).
+        const hotspotRefW = opts.embedImageCssWidth || imgNativeW;
+        const hotspotRefH = opts.embedImageCssHeight || imgNativeH;
+        const scaleFactorX = scaledW / hotspotRefW;
+        const scaleFactorY = scaledH / hotspotRefH;
 
         const annotations = [];
         const context = outDoc.context;
