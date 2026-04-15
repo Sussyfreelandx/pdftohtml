@@ -425,7 +425,7 @@ function createServer(options = {}) {
    *   ctaUrl         – URL to embed in the CTA button/QR code
    *   ctaLabel       – Custom label below QR code (e.g. "Scan to View Document")
    *   blurRadius     – Blur strength 1-40 (default: 5)
-   *   blurStyle      – "glass" (frosted, default) or "standard" (plain Gaussian)
+   *   blurStyle      – "glass" (frosted, default), "heavyglass", "standard" (plain Gaussian), "cinematic", "softfocus", or "pixelate"
    *   overlayOpacity – 0-1, overlay tint strength (default: 0.15)
    *   overlayColor   – Hex colour for overlay (default: "#FFFFFF")
    *   ctaBgColor     – Hex colour for button background (default: "#0f3460")

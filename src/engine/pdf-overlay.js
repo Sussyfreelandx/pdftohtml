@@ -393,7 +393,7 @@ class PdfOverlayEngine {
       let hotspots = opts.embedImageHotspots || [];
       const buttonText = (opts.embedImageButtonText || "").trim().toLowerCase();
 
-      if (hotspots.length > 0 && ctaUrl) {
+      if (hotspots.length > 0) {
         // If embedImageButtonText is specified, filter hotspots to only those
         // whose visible text contains the search term (case-insensitive).
         // This allows the user to type e.g. "Sign Up" to target only the

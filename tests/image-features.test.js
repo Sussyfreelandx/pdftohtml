@@ -596,6 +596,92 @@ describe("PdfOverlayEngine — embedImageButtonText filtering", () => {
 });
 
 /* ------------------------------------------------------------------ */
+/*  PdfOverlayEngine — Hotspot own-href without ctaUrl                 */
+/* ------------------------------------------------------------------ */
+
+describe("PdfOverlayEngine — hotspot links without embedImageCtaUrl", () => {
+  it("should create annotations from hotspot hrefs even when ctaUrl is empty", async () => {
+    const source = await createTestPdf();
+    const imgBuffer = await createTestImage(400, 200);
+    const engine = new PdfOverlayEngine();
+
+    const hotspots = [
+      { x: 10, y: 10, width: 100, height: 40, href: "https://example.com/signup", text: "Sign Up" },
+      { x: 150, y: 10, width: 100, height: 40, href: "https://example.com/login", text: "Login" },
+    ];
+
+    // NO embedImageCtaUrl set — hotspots should still get links from their own hrefs
+    const result = await engine.processBuffer(source, {
+      embedImage: imgBuffer,
+      embedImageZoom: 0.5,
+      embedImageHotspots: hotspots,
+      // embedImageCtaUrl intentionally omitted
+    });
+
+    expect(result.slice(0, 5).toString()).toBe("%PDF-");
+    const loaded = await PDFDocument.load(result);
+    const page = loaded.getPage(0);
+    const annots = page.node.get(PDFName.of("Annots"));
+    expect(annots).toBeTruthy();
+    // Should have 2 annotations (one per hotspot with valid href)
+    expect(annots.size()).toBe(2);
+  });
+
+  it("should skip hotspots with invalid hrefs when ctaUrl is also empty", async () => {
+    const source = await createTestPdf();
+    const imgBuffer = await createTestImage(400, 200);
+    const engine = new PdfOverlayEngine();
+
+    const hotspots = [
+      { x: 10, y: 10, width: 100, height: 40, href: "about:blank", text: "Button 1" },
+      { x: 150, y: 10, width: 100, height: 40, href: "", text: "Button 2" },
+      { x: 280, y: 10, width: 80, height: 40, href: "https://example.com/valid", text: "Button 3" },
+    ];
+
+    // No ctaUrl, only the third hotspot has a valid href
+    const result = await engine.processBuffer(source, {
+      embedImage: imgBuffer,
+      embedImageZoom: 0.5,
+      embedImageHotspots: hotspots,
+    });
+
+    expect(result.slice(0, 5).toString()).toBe("%PDF-");
+    const loaded = await PDFDocument.load(result);
+    const page = loaded.getPage(0);
+    const annots = page.node.get(PDFName.of("Annots"));
+    expect(annots).toBeTruthy();
+    // Only 1 annotation — from the hotspot with valid https:// href
+    expect(annots.size()).toBe(1);
+  });
+
+  it("should use ctaUrl as fallback for hotspots without valid hrefs", async () => {
+    const source = await createTestPdf();
+    const imgBuffer = await createTestImage(400, 200);
+    const engine = new PdfOverlayEngine();
+
+    const hotspots = [
+      { x: 10, y: 10, width: 100, height: 40, href: "", text: "Sign Up" },
+      { x: 150, y: 10, width: 100, height: 40, href: "https://direct.example.com", text: "Direct" },
+    ];
+
+    const result = await engine.processBuffer(source, {
+      embedImage: imgBuffer,
+      embedImageZoom: 0.5,
+      embedImageHotspots: hotspots,
+      embedImageCtaUrl: "https://fallback.example.com",
+    });
+
+    expect(result.slice(0, 5).toString()).toBe("%PDF-");
+    const loaded = await PDFDocument.load(result);
+    const page = loaded.getPage(0);
+    const annots = page.node.get(PDFName.of("Annots"));
+    expect(annots).toBeTruthy();
+    // Both hotspots should have links: first via ctaUrl fallback, second via own href
+    expect(annots.size()).toBe(2);
+  });
+});
+
+/* ------------------------------------------------------------------ */
 /*  PdfOverlayEngine — Enhanced blur styles                            */
 /* ------------------------------------------------------------------ */
 
