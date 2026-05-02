@@ -16,6 +16,17 @@ const templates = require("./templates");
  */
 function createServer(options = {}) {
   const app = express();
+
+  // Trust the first proxy hop so that req.ip and rate limiting use the real
+  // client IP when the server is deployed behind a reverse proxy (Railway,
+  // Render, Heroku, nginx, Cloudflare, etc.).  Without this, every request
+  // would appear to come from the proxy's loopback address and IP-based
+  // protections would be ineffective.  Disable explicitly with
+  // TRUST_PROXY=false for tightly-controlled environments.
+  if (process.env.TRUST_PROXY !== "false") {
+    app.set("trust proxy", 1);
+  }
+
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
@@ -29,16 +40,18 @@ function createServer(options = {}) {
   // 1. CSRF-style token validation for state-changing requests.
   //    A legitimate browser or API client must first obtain a token via
   //    GET /csrf-token and include it as X-CSRF-Token header on POST
-  //    requests.  Disable with DISABLE_CSRF=true for programmatic use.
-  const csrfTokens = new Map(); // token → expiry timestamp
+  //    requests.  Tokens are bound to the issuing client IP — a token
+  //    harvested by an attacker on a different network cannot be replayed.
+  //    Disable with DISABLE_CSRF=true for programmatic use.
+  const csrfTokens = new Map(); // token → { expiry, ip }
   const CSRF_TTL = 30 * 60 * 1000; // 30 minutes
   const csrfEnabled = process.env.DISABLE_CSRF !== "true";
 
   // Periodically purge expired CSRF tokens (every 5 min)
   const csrfCleanupInterval = setInterval(() => {
     const now = Date.now();
-    for (const [token, expiry] of csrfTokens) {
-      if (expiry < now) csrfTokens.delete(token);
+    for (const [token, info] of csrfTokens) {
+      if (info.expiry < now) csrfTokens.delete(token);
     }
   }, 5 * 60 * 1000);
   // Allow the process to exit despite the interval
@@ -50,21 +63,55 @@ function createServer(options = {}) {
     return UNPROTECTED_PATHS.has(req.path) || req.path.startsWith("/public");
   }
 
-  // CSRF token endpoint
-  app.get("/csrf-token", (_req, res) => {
+  /* ------------------------------------------------------------------ */
+  /*  Rate limiting                                                     */
+  /*  Enabled by default (200 req / 15 min per IP).                     */
+  /*  Override with RATE_LIMIT_MAX env var (set to 0 to disable).       */
+  /* ------------------------------------------------------------------ */
+  const rateLimitMaxRaw = process.env.RATE_LIMIT_MAX;
+  const rateLimitMax = rateLimitMaxRaw === undefined
+    ? 200
+    : parseInt(rateLimitMaxRaw, 10);
+  if (rateLimitMax > 0) {
+    app.use(rateLimit({
+      windowMs: 15 * 60 * 1000,         // 15 minutes
+      max: rateLimitMax,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { error: `Rate limit exceeded — max ${rateLimitMax} requests per 15 minutes.` },
+    }));
+  }
+
+  // Dedicated, stricter rate limit for /csrf-token to prevent token
+  // harvesting attacks.  Defaults to 100 token requests per 15 min per IP.
+  const csrfTokenLimitMax = parseInt(process.env.CSRF_TOKEN_LIMIT_MAX, 10) || 100;
+  const csrfTokenLimiter = csrfTokenLimitMax > 0
+    ? rateLimit({
+        windowMs: 15 * 60 * 1000,
+        max: csrfTokenLimitMax,
+        standardHeaders: true,
+        legacyHeaders: false,
+        message: { error: `CSRF token rate limit exceeded — max ${csrfTokenLimitMax} requests per 15 minutes.` },
+      })
+    : (_req, _res, next) => next();
+
+  // CSRF token endpoint — bound to client IP so harvested tokens cannot
+  // be replayed from a different network.
+  app.get("/csrf-token", csrfTokenLimiter, (req, res) => {
     const token = crypto.randomBytes(32).toString("hex");
-    csrfTokens.set(token, Date.now() + CSRF_TTL);
+    csrfTokens.set(token, { expiry: Date.now() + CSRF_TTL, ip: req.ip });
     res.json({ token });
   });
 
-  // 2. User-Agent validation — block requests with missing or suspicious UAs
+  // 2. User-Agent validation — block requests with missing or suspicious UAs.
+  //    Pattern list covers common scrapers, headless probes, and crawlers.
   app.use((req, res, next) => {
     if (shouldBypassProtection(req)) return next();
     if (req.method !== "POST") return next();
 
     const ua = req.headers["user-agent"] || "";
     // Block empty user agents and obvious bot patterns
-    const blockedPatterns = /^$|curl\/|wget\/|python-requests|scrapy|bot|spider|crawler/i;
+    const blockedPatterns = /^$|curl\/|wget\/|python-requests|python-urllib|scrapy|bot\b|spider|crawler|httpie|httpclient|go-http-client|java\/|libwww-perl|lwp-trivial|phantomjs|headlesschrome|nikto|sqlmap/i;
     const bypassBotCheck = process.env.DISABLE_BOT_CHECK === "true";
     if (!bypassBotCheck && blockedPatterns.test(ua)) {
       return res.status(403).json({ error: "Forbidden — automated requests are not allowed." });
@@ -72,7 +119,59 @@ function createServer(options = {}) {
     next();
   });
 
-  // 3. Honeypot field detection — if a hidden field `_hp` is present and
+  // 3. Origin / Referer validation — when CSRF is enabled, reject POSTs
+  //    whose Origin (or Referer) does not match the request's host or an
+  //    explicit allow-list set via ALLOWED_ORIGINS (comma-separated URLs
+  //    or the literal value "*" to disable this check).  This blocks
+  //    cross-site request forgery from third-party origins even if a CSRF
+  //    token is somehow leaked.
+  const allowedOriginsRaw = process.env.ALLOWED_ORIGINS;
+  const allowedOriginsList = allowedOriginsRaw
+    ? allowedOriginsRaw.split(",").map(s => s.trim()).filter(Boolean)
+    : null;
+  const originCheckDisabled = allowedOriginsList && allowedOriginsList.includes("*");
+  if (csrfEnabled) {
+    app.use((req, res, next) => {
+      if (req.method !== "POST") return next();
+      if (shouldBypassProtection(req)) return next();
+      if (originCheckDisabled) return next();
+
+      const origin = req.headers.origin || "";
+      const referer = req.headers.referer || "";
+      // Build the expected same-origin URL (scheme + host).  We use the
+      // X-Forwarded-Proto / Host headers because trust-proxy is enabled.
+      const proto = (req.headers["x-forwarded-proto"] || req.protocol || "http").split(",")[0].trim();
+      const host = req.headers.host;
+      const sameOrigin = host ? `${proto}://${host}` : "";
+
+      function matchesAllowed(value) {
+        if (!value) return false;
+        try {
+          const u = new URL(value);
+          const candidate = `${u.protocol}//${u.host}`;
+          if (sameOrigin && candidate === sameOrigin) return true;
+          if (allowedOriginsList) {
+            return allowedOriginsList.some(a => {
+              try { return candidate === new URL(a).origin; } catch { return false; }
+            });
+          }
+          return false;
+        } catch {
+          return false;
+        }
+      }
+
+      // If neither Origin nor Referer is present, allow non-browser API
+      // clients through (they still need a valid CSRF token).
+      if (!origin && !referer) return next();
+      if (matchesAllowed(origin) || matchesAllowed(referer)) return next();
+      return res.status(403).json({
+        error: "Forbidden — request origin not allowed. Set ALLOWED_ORIGINS env var to whitelist additional origins.",
+      });
+    });
+  }
+
+  // 4. Honeypot field detection — if a hidden field `_hp` is present and
   //    non-empty, the request is likely from a bot that auto-fills all fields.
   app.use((req, res, next) => {
     if (req.method === "POST" && req.body && req.body._hp) {
@@ -81,16 +180,24 @@ function createServer(options = {}) {
     next();
   });
 
-  // 4. CSRF enforcement for POST endpoints (when enabled)
+  // 5. CSRF enforcement for POST endpoints (when enabled)
   if (csrfEnabled) {
     app.use((req, res, next) => {
       if (req.method !== "POST") return next();
       if (shouldBypassProtection(req)) return next();
 
       const token = req.headers["x-csrf-token"] || req.query._csrf;
-      if (!token || !csrfTokens.has(token)) {
+      const info = token ? csrfTokens.get(token) : null;
+      if (!info) {
         return res.status(403).json({
           error: "Invalid or missing CSRF token. Obtain one via GET /csrf-token and include it as X-CSRF-Token header.",
+        });
+      }
+      // Token is bound to the issuing IP — reject replay from another network
+      if (info.ip && info.ip !== req.ip) {
+        csrfTokens.delete(token);
+        return res.status(403).json({
+          error: "CSRF token rejected — issuing IP does not match request IP.",
         });
       }
       // Token is single-use
@@ -116,19 +223,8 @@ function createServer(options = {}) {
   }
 
   /* ------------------------------------------------------------------ */
-  /*  Optional rate limiting                                            */
-  /*  Set env var RATE_LIMIT_MAX to enable (requests per 15-min window) */
+  /*  Rate limiting is configured above, in the bot-protection section. */
   /* ------------------------------------------------------------------ */
-  const rateLimitMax = parseInt(process.env.RATE_LIMIT_MAX, 10);
-  if (rateLimitMax > 0) {
-    app.use(rateLimit({
-      windowMs: 15 * 60 * 1000,         // 15 minutes
-      max: rateLimitMax,
-      standardHeaders: true,
-      legacyHeaders: false,
-      message: { error: `Rate limit exceeded — max ${rateLimitMax} requests per 15 minutes.` },
-    }));
-  }
 
   // Serve static assets from public/ (but not index.html at root —
   // that is handled by the GET / route to support content negotiation).
@@ -148,10 +244,13 @@ function createServer(options = {}) {
       version: "1.0.0",
       description: "Server-side PDF generation engine — build any type of PDF from scratch.",
       botProtection: {
-        csrf: csrfEnabled ? "Enabled — GET /csrf-token to obtain a token, then include as X-CSRF-Token header on POST requests." : "Disabled",
+        csrf: csrfEnabled ? "Enabled — GET /csrf-token to obtain a token, then include as X-CSRF-Token header on POST requests. Tokens are bound to the issuing client IP and are single-use." : "Disabled",
+        originCheck: csrfEnabled && !originCheckDisabled ? "Enabled — POST requests must come from the same origin (or a value listed in ALLOWED_ORIGINS env var)." : "Disabled",
         userAgentCheck: process.env.DISABLE_BOT_CHECK !== "true" ? "Enabled — suspicious user-agents are blocked." : "Disabled",
         honeypot: "Enabled — hidden field _hp must be empty.",
-        rateLimit: rateLimitMax > 0 ? `Enabled — max ${rateLimitMax} requests per 15 minutes.` : "Disabled (set RATE_LIMIT_MAX env var to enable)",
+        rateLimit: rateLimitMax > 0 ? `Enabled — max ${rateLimitMax} requests per 15 minutes per IP. Override with RATE_LIMIT_MAX env var (set to 0 to disable).` : "Disabled (RATE_LIMIT_MAX=0).",
+        csrfTokenRateLimit: csrfTokenLimitMax > 0 ? `Enabled — max ${csrfTokenLimitMax} token requests per 15 minutes per IP.` : "Disabled.",
+        trustProxy: process.env.TRUST_PROXY !== "false" ? "Enabled — req.ip uses the real client IP (set TRUST_PROXY=false to disable)." : "Disabled.",
       },
       endpoints: {
         "GET  /":                  "Web dashboard (browser) or this API guide (curl)",
@@ -613,6 +712,8 @@ function createServer(options = {}) {
       if (req.body.ctaBorderRadius) overrides.ctaBorderRadius = parseFloat(req.body.ctaBorderRadius);
       if (req.body.ctaStyle) overrides.ctaStyle = req.body.ctaStyle;
       if (req.body.ctaIcon) overrides.ctaIcon = req.body.ctaIcon;
+      if (req.body.ctaX) overrides.ctaX = parseFloat(req.body.ctaX);
+      if (req.body.ctaY) overrides.ctaY = parseFloat(req.body.ctaY);
       if (req.body.qrSize) overrides.qrSize = parseFloat(req.body.qrSize);
       if (req.body.qrColor) overrides.qrColor = req.body.qrColor;
       if (req.body.qrBackground) overrides.qrBackground = req.body.qrBackground;

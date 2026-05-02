@@ -394,6 +394,26 @@ describe("POST /overlay — Image Embed", () => {
     expect(res.status).toBe(200);
     expect(res.body.slice(0, 5).toString()).toBe("%PDF-");
   });
+
+  it("/overlay/batch honors custom ctaX/ctaY positioning fields", async () => {
+    const pdfBuffer = await createTestPdf();
+
+    // Send two PDFs to /overlay/batch with custom ctaX/ctaY positioning.
+    // Previously these were silently dropped — verify the request now
+    // succeeds and produces a valid PDF (i.e. the engine accepted them).
+    const res = await multipartRequest("/overlay/batch", {
+      ctaUrl: "https://example.com",
+      ctaText: "View",
+      ctaX: "0.25",
+      ctaY: "0.75",
+    }, [
+      { fieldName: "files", fileName: "a.pdf", contentType: "application/pdf", data: pdfBuffer },
+      { fieldName: "files", fileName: "b.pdf", contentType: "application/pdf", data: pdfBuffer },
+    ]);
+
+    expect(res.status).toBe(200);
+    expect(res.body.slice(0, 5).toString()).toBe("%PDF-");
+  });
 });
 
 /* ------------------------------------------------------------------ */

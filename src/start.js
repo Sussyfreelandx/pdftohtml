@@ -4,9 +4,17 @@ const PORT = process.env.PORT || 3000;
 const app = createServer();
 
 app.listen(PORT, () => {
+  const csrfStatus = process.env.DISABLE_CSRF === "true" ? "disabled" : "enabled (IP-bound, single-use)";
+  const uaStatus = process.env.DISABLE_BOT_CHECK === "true" ? "disabled" : "enabled";
+  const rlMaxRaw = process.env.RATE_LIMIT_MAX;
+  const rlMax = rlMaxRaw === undefined ? 200 : parseInt(rlMaxRaw, 10);
+  const rlStatus = rlMax > 0 ? `${rlMax} req / 15 min per IP` : "disabled";
+
   console.log(`🚀 PDF Engine running at http://localhost:${PORT}`);
   console.log();
   console.log(`   Web Dashboard:  http://localhost:${PORT}`);
+  console.log();
+  console.log(`   Bot protection: CSRF ${csrfStatus} · UA check ${uaStatus} · Rate limit ${rlStatus}`);
   console.log();
   console.log("   API endpoints:");
   console.log(`   GET  /health              — Health check`);

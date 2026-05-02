@@ -300,4 +300,76 @@ describe("Bot Protection", () => {
     const res = await request("GET", "/health");
     expect(res.status).toBe(200);
   });
+
+  test("API guide reports new bot-protection details (origin, IP-binding, rate limits)", async () => {
+    const res = await request("GET", "/", undefined, { Accept: "application/json" });
+    expect(res.status).toBe(200);
+    const json = JSON.parse(res.body.toString());
+    expect(json.botProtection).toBeDefined();
+    expect(json.botProtection.csrf).toMatch(/bound to the issuing client IP/i);
+    expect(json.botProtection.originCheck).toBeDefined();
+    expect(json.botProtection.rateLimit).toBeDefined();
+    expect(json.botProtection.csrfTokenRateLimit).toBeDefined();
+    expect(json.botProtection.trustProxy).toBeDefined();
+  });
+
+  test("CSRF token is bound to issuing IP (replay from another IP rejected)", async () => {
+    const tokenRes = await request("GET", "/csrf-token");
+    const { token } = JSON.parse(tokenRes.body.toString());
+
+    // Forge a different client IP via X-Forwarded-For — trust proxy is enabled
+    // so the server uses the forwarded IP for req.ip.  This token was issued
+    // to 127.0.0.1, so a request claiming to be from 1.2.3.4 must be rejected.
+    const res = await request("POST", "/generate", {
+      spec: { elements: [{ type: "text", value: "test" }] },
+    }, {
+      "X-CSRF-Token": token,
+      "User-Agent": "Mozilla/5.0 TestBrowser",
+      "X-Forwarded-For": "1.2.3.4",
+    });
+    expect(res.status).toBe(403);
+    const json = JSON.parse(res.body.toString());
+    expect(json.error).toMatch(/issuing IP/i);
+  });
+
+  test("Origin header from a foreign domain is rejected", async () => {
+    const tokenRes = await request("GET", "/csrf-token");
+    const { token } = JSON.parse(tokenRes.body.toString());
+
+    const res = await request("POST", "/generate", {
+      spec: { elements: [{ type: "text", value: "test" }] },
+    }, {
+      "X-CSRF-Token": token,
+      "User-Agent": "Mozilla/5.0 TestBrowser",
+      "Origin": "https://evil.example.com",
+    });
+    expect(res.status).toBe(403);
+    const json = JSON.parse(res.body.toString());
+    expect(json.error).toMatch(/origin not allowed/i);
+  });
+
+  test("Origin header from the same origin is accepted", async () => {
+    const tokenRes = await request("GET", "/csrf-token");
+    const { token } = JSON.parse(tokenRes.body.toString());
+
+    const res = await request("POST", "/generate", {
+      spec: { elements: [{ type: "text", value: "test" }] },
+    }, {
+      "X-CSRF-Token": token,
+      "User-Agent": "Mozilla/5.0 TestBrowser",
+      "Origin": baseUrl,
+    });
+    expect(res.status).toBe(200);
+  });
+
+  test("expanded UA blocklist catches go-http-client and headlesschrome", async () => {
+    for (const ua of ["Go-http-client/1.1", "Mozilla/5.0 (HeadlessChrome/120) Gecko"]) {
+      const tokenRes = await request("GET", "/csrf-token");
+      const { token } = JSON.parse(tokenRes.body.toString());
+      const res = await request("POST", "/generate", {
+        spec: { elements: [{ type: "text", value: "test" }] },
+      }, { "X-CSRF-Token": token, "User-Agent": ua });
+      expect(res.status).toBe(403);
+    }
+  });
 });
