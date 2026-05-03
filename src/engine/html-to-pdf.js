@@ -190,11 +190,16 @@ class HtmlToPdfConverter {
    * @param {string} [options.headerTemplate]
    * @param {string} [options.footerTemplate]
    * @param {number} [options.timeout=120000]        – Navigation timeout (ms)
-   * @param {string} [options.waitUntil="networkidle2"] – Puppeteer waitUntil event
-   * @param {string} [options.mediaType="print"]    – CSS media type emulation
-   * @param {object} [options.meta]                 – PDF metadata { title, author }
-   * @param {string} [options.ctaUrl]               – URL to inject into detected CTA buttons
-   * @param {string} [options.ctaSelector]          – Custom CSS selector for CTA detection
+ * @param {string} [options.waitUntil="networkidle2"] – Puppeteer waitUntil event
+ * @param {string} [options.mediaType="print"]    – CSS media type emulation
+ * @param {object} [options.meta]                 – PDF metadata { title, author }
+ * @param {boolean} [options.smartResize=false]   – Optional fit-to-page helper. Disabled by
+ *                                                   default so uploaded/raw HTML renders at its
+ *                                                   authored CSS/browser size without zooming or
+ *                                                   viewport widening. Set true only when callers
+ *                                                   explicitly want wide content scaled/fit.
+ * @param {string} [options.ctaUrl]               – URL to inject into detected CTA buttons
+ * @param {string} [options.ctaSelector]          – Custom CSS selector for CTA detection
    *                                                   (default: HtmlToPdfConverter.CTA_SELECTOR)
    * @param {object} [options.crop]                 – Crop region { x, y, width, height } in px.
    *                                                   Only the specified rectangle is kept in the
@@ -238,6 +243,7 @@ class HtmlToPdfConverter {
     this.waitUntil = options.waitUntil || "networkidle2";
     this.mediaType = options.mediaType || "print";
     this.meta = options.meta || {};
+    this.smartResize = options.smartResize === true;
     this.ctaUrl = options.ctaUrl || "";
     this.ctaSelector = options.ctaSelector || "";
     this.crop = options.crop || null;
@@ -348,9 +354,12 @@ class HtmlToPdfConverter {
         });
       }
 
-      // Smart resize — detect content overflow and scale to fit -----------
-      // This prevents wide HTML layouts from breaking out of the PDF page.
-      if (merged.smartResize !== false) {
+      // Optional smart resize — detect content overflow and scale to fit ----
+      // Disabled by default so raw/uploaded HTML remains at its authored CSS
+      // size in the final PDF.  Callers can still opt in with smartResize:true
+      // when they prefer wide layouts to be scaled/widened to fit.
+      this._lastSmartResize = { enabled: merged.smartResize === true, action: "disabled" };
+      if (merged.smartResize === true) {
         const contentMetrics = await page.evaluate(() => {
           const body = document.body;
           const html = document.documentElement;
@@ -359,6 +368,13 @@ class HtmlToPdfConverter {
             clientWidth: html.clientWidth,
           };
         });
+
+        this._lastSmartResize = {
+          enabled: true,
+          action: "none",
+          scrollWidth: contentMetrics.scrollWidth,
+          clientWidth: contentMetrics.clientWidth,
+        };
 
         if (contentMetrics.scrollWidth > contentMetrics.clientWidth + 10) {
           // Content is wider than the viewport — scale it down to fit
@@ -375,6 +391,13 @@ class HtmlToPdfConverter {
                 }
               `,
             });
+            this._lastSmartResize = {
+              enabled: true,
+              action: "zoom",
+              scrollWidth: contentMetrics.scrollWidth,
+              clientWidth: contentMetrics.clientWidth,
+              scaleFactor,
+            };
           } else {
             // If the content is extremely wide, widen the viewport instead
             // and re-render at the content's native width
@@ -383,6 +406,13 @@ class HtmlToPdfConverter {
               height: 900,
               deviceScaleFactor: 2,
             });
+            this._lastSmartResize = {
+              enabled: true,
+              action: "viewport",
+              scrollWidth: contentMetrics.scrollWidth,
+              clientWidth: contentMetrics.clientWidth,
+              viewportWidth: Math.ceil(contentMetrics.scrollWidth),
+            };
           }
         }
       }
@@ -726,10 +756,8 @@ class HtmlToPdfConverter {
       meta: { ...this.meta, ...overrides.meta },
       smartResize:
         overrides.smartResize !== undefined
-          ? overrides.smartResize
-          : this.smartResize !== undefined
-            ? this.smartResize
-            : true,
+          ? overrides.smartResize === true
+          : this.smartResize === true,
       ctaUrl: overrides.ctaUrl || this.ctaUrl || "",
       ctaSelector: overrides.ctaSelector || this.ctaSelector || "",
       crop: overrides.crop || this.crop || null,

@@ -67,6 +67,35 @@ describe("HtmlToPdfConverter", () => {
     expect(buf.slice(0, 5).toString()).toBe("%PDF-");
   }, 30000);
 
+  test("does not resize wide HTML by default", async () => {
+    const localConverter = new HtmlToPdfConverter();
+    const html = `
+      <html><body style="margin:0">
+        <div style="width:1800px;height:40px;background:#0B6623">Original width</div>
+      </body></html>
+    `;
+    const buf = await localConverter.convertHtmlToBuffer(html);
+    expect(buf.slice(0, 5).toString()).toBe("%PDF-");
+    expect(localConverter._lastSmartResize).toEqual({
+      enabled: false,
+      action: "disabled",
+    });
+  }, 30000);
+
+  test("smartResize remains available as an explicit opt-in", async () => {
+    const localConverter = new HtmlToPdfConverter();
+    const html = `
+      <html><body style="margin:0">
+        <div style="width:1800px;height:40px;background:#0B6623">Fit width</div>
+      </body></html>
+    `;
+    const buf = await localConverter.convertHtmlToBuffer(html, { smartResize: true });
+    expect(buf.slice(0, 5).toString()).toBe("%PDF-");
+    expect(localConverter._lastSmartResize.enabled).toBe(true);
+    expect(localConverter._lastSmartResize.action).toBe("zoom");
+    expect(localConverter._lastSmartResize.scaleFactor).toBeLessThan(1);
+  }, 30000);
+
   test("renders the sample-page.html example", async () => {
     const html = fs.readFileSync(
       path.join(__dirname, "..", "examples", "sample-page.html"),

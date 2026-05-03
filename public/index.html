@@ -1323,7 +1323,13 @@
       setStatus("statusUpload", "info", '<span class="spinner"></span> Reading file and generating PDF — this may take a moment for large files…');
 
       try {
-        const opts = { format: document.getElementById("uploadFormat").value };
+        const opts = {
+          format: document.getElementById("uploadFormat").value,
+          // Preserve uploaded HTML at its authored CSS/browser size.  The
+          // converter still supports smartResize:true for explicit API callers,
+          // but raw HTML uploads should not be zoomed or widened automatically.
+          smartResize: false,
+        };
 
         // CTA injection
         const ctaUrl = document.getElementById("uploadCtaUrl").value.trim();
@@ -1359,6 +1365,7 @@
         fd.append("htmlFile", selectedFile, selectedFile.name || "upload.html");
         fd.append("filename", filename);
         if (opts.format) fd.append("format", opts.format);
+        fd.append("smartResize", "false");
         if (opts.ctaUrl) fd.append("ctaUrl", opts.ctaUrl);
         if (opts.ctaSelector) fd.append("ctaSelector", opts.ctaSelector);
         if (opts.crop) fd.append("crop", JSON.stringify(opts.crop));
