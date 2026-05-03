@@ -58,7 +58,7 @@ function createServer(options = {}) {
   if (csrfCleanupInterval.unref) csrfCleanupInterval.unref();
 
   // Paths that bypass bot protection middleware (health, public assets, root, etc.)
-  const UNPROTECTED_PATHS = new Set(["/health", "/", "/csrf-token", "/templates"]);
+  const UNPROTECTED_PATHS = new Set(["/health", "/", "/csrf-token", "/templates", "/r"]);
   function shouldBypassProtection(req) {
     return UNPROTECTED_PATHS.has(req.path) || req.path.startsWith("/public");
   }
@@ -257,16 +257,20 @@ function createServer(options = {}) {
         "GET  /health":            "Health check",
         "GET  /csrf-token":        "Obtain a CSRF token for POST requests",
         "GET  /templates":         "List available templates",
+        "GET  /r":                 "Signed link redirector — verifies HMAC and 302s to the destination URL. Used by the link-redirector feature so destination URLs never appear in the rendered PDF/HTML.",
         "POST /generate":          "Generate PDF from a raw spec (body: { spec: { elements: [...] } })",
         "POST /generate/:template": "Generate PDF from a named template (body: { data: { ... } })",
-        "POST /convert":           "Convert HTML string to PDF (body: { html, options: { ctaUrl, ctaSelector, crop: {x,y,width,height} } })",
-        "POST /convert/url":       "Convert a URL to PDF (body: { url, options: { ctaUrl, ctaSelector, crop: {x,y,width,height} } })",
-        "POST /convert/image":     "Convert HTML string to image with interactive hotspot map (body: { html, options: { crop: {x,y,width,height} } })",
-        "POST /convert/image/url": "Convert a URL to image with interactive hotspot map (body: { url, options: { crop: {x,y,width,height} } })",
+        "POST /convert":           "Convert HTML to PDF. JSON: { html, options: { ctaUrl, ctaSelector, crop, stealthLinks, linkRedirector } }, OR multipart with 'htmlFile' upload. Set applyOverlay=true to chain the rendered PDF through the overlay engine (blur + CTA + watermark) using the same fields as POST /overlay.",
+        "POST /convert/url":       "Convert a URL to PDF (body: { url, options: { ctaUrl, ctaSelector, crop } })",
+        "POST /convert/image":     "Convert HTML string to image with interactive hotspot map (body: { html, options: { crop } })",
+        "POST /convert/image/url": "Convert a URL to image with interactive hotspot map (body: { url, options: { crop } })",
         "POST /overlay":           "Upload a PDF, blur it, add a clickable CTA (multipart/form-data). Supports image embed with zoom & floating placement, or direct HTML embed via embedHtml field.",
         "POST /overlay/batch":     "Process multiple PDFs with the same overlay settings (multipart/form-data)",
         "POST /merge":             "Merge multiple PDFs into one (multipart/form-data, field: 'files')",
       },
+      linkRedirector: defaultLinkRedirector
+        ? `Enabled — set linkRedirector:true on /convert to opt in. GET /r verifies HMAC and 302-redirects.`
+        : "Disabled (set LINK_REDIRECTOR_BASE_URL and LINK_REDIRECTOR_SECRET env vars to enable).",
       templates: Object.keys(templates),
     });
   });
@@ -342,31 +346,208 @@ function createServer(options = {}) {
   /* ------------------------------------------------------------------ */
 
   const converter = new HtmlToPdfConverter(options.converterOptions);
+  // The overlay engine is also needed here so that /convert can chain
+  // through it when applyOverlay=true.  The `let` so the later
+  // declaration site can be removed.
+  const overlayEngine = new PdfOverlayEngine(options.overlayOptions);
+
+  // ---- Server-wide link redirector defaults ----------------------------
+  // When LINK_REDIRECTOR_BASE_URL and LINK_REDIRECTOR_SECRET are set, every
+  // POST /convert request that opts in (linkRedirector=true) will rewrite
+  // its hrefs through the GET /r endpoint (defined below).  Clients can
+  // still override on a per-request basis by sending an explicit
+  // { baseUrl, secret } object.
+  const defaultLinkRedirector =
+    process.env.LINK_REDIRECTOR_BASE_URL && process.env.LINK_REDIRECTOR_SECRET
+      ? {
+          baseUrl: process.env.LINK_REDIRECTOR_BASE_URL,
+          secret: process.env.LINK_REDIRECTOR_SECRET,
+        }
+      : null;
+
+  // ---- Tiny helpers shared by /convert ---------------------------------
+  function parseBoolean(v) {
+    if (v === true || v === false) return v;
+    if (typeof v === "string") {
+      return v === "true" || v === "1" || v === "yes" || v === "on";
+    }
+    return false;
+  }
+
+  /**
+   * Collect overlay engine option overrides from a POST body.  Mirrors the
+   * `req.body` parsing done by POST /overlay so that /convert?applyOverlay=true
+   * can feed identical settings to the engine.
+   */
+  function collectOverlayOverrides(body) {
+    const o = {};
+    if (body.ctaType) o.ctaType = body.ctaType;
+    if (body.ctaText) o.ctaText = body.ctaText;
+    if (body.ctaUrl) o.ctaUrl = body.ctaUrl;
+    if (body.ctaLabel) o.ctaLabel = body.ctaLabel;
+    if (body.blurRadius) o.blurRadius = parseFloat(body.blurRadius);
+    if (body.blurStyle) o.blurStyle = body.blurStyle;
+    if (body.overlayOpacity) o.overlayOpacity = parseFloat(body.overlayOpacity);
+    if (body.overlayColor) o.overlayColor = body.overlayColor;
+    if (body.ctaBgColor) o.ctaBgColor = body.ctaBgColor;
+    if (body.ctaTextColor) o.ctaTextColor = body.ctaTextColor;
+    if (body.ctaFontSize) o.ctaFontSize = parseFloat(body.ctaFontSize);
+    if (body.ctaWidth) o.ctaWidth = parseFloat(body.ctaWidth);
+    if (body.ctaHeight) o.ctaHeight = parseFloat(body.ctaHeight);
+    if (body.ctaBorderRadius) o.ctaBorderRadius = parseFloat(body.ctaBorderRadius);
+    if (body.ctaStyle) o.ctaStyle = body.ctaStyle;
+    if (body.ctaIcon) o.ctaIcon = body.ctaIcon;
+    if (body.ctaX) o.ctaX = parseFloat(body.ctaX);
+    if (body.ctaY) o.ctaY = parseFloat(body.ctaY);
+    if (body.qrSize) o.qrSize = parseFloat(body.qrSize);
+    if (body.qrColor) o.qrColor = body.qrColor;
+    if (body.qrBackground) o.qrBackground = body.qrBackground;
+    if (body.blurPages) o.blurPages = body.blurPages;
+    if (body.dpi) o.dpi = parseInt(body.dpi, 10);
+    if (body.watermarkText) o.watermarkText = body.watermarkText;
+    if (body.watermarkColor) o.watermarkColor = body.watermarkColor;
+    if (body.watermarkOpacity) o.watermarkOpacity = parseFloat(body.watermarkOpacity);
+    if (body.metaTitle) o.metaTitle = body.metaTitle;
+    if (body.metaAuthor) o.metaAuthor = body.metaAuthor;
+    if (body.metaSubject) o.metaSubject = body.metaSubject;
+    return o;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  GET /r — Signed link-redirector endpoint                          */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * GET /r?u=<base64url(realUrl)>&s=<hmac>
+   *
+   * Verifies the HMAC signature against LINK_REDIRECTOR_SECRET and 302s
+   * to the original URL.  Returns 404 when the redirector is not
+   * configured, 403 for invalid signatures or for requests carrying a
+   * known-bad bot User-Agent (re-uses the same blocklist applied to POST
+   * requests).  This lets the engine rewrite every http(s) href in the
+   * generated PDF through this endpoint, so the destination URL never
+   * appears in the document — only an opaque, signed token does.
+   */
+  app.get("/r", (req, res) => {
+    if (!defaultLinkRedirector) {
+      return res.status(404).json({
+        error: "Link redirector is not configured. Set LINK_REDIRECTOR_BASE_URL and LINK_REDIRECTOR_SECRET env vars.",
+      });
+    }
+    // Apply the same UA blocklist used for POST requests so bots that
+    // follow honeypot anchors get rejected at this gate.
+    const ua = req.headers["user-agent"] || "";
+    const blockedPatterns = /^$|curl\/|wget\/|python-requests|python-urllib|scrapy|bot\b|spider|crawler|httpie|httpclient|go-http-client|java\/|libwww-perl|lwp-trivial|phantomjs|headlesschrome|nikto|sqlmap/i;
+    const bypassBotCheck = process.env.DISABLE_BOT_CHECK === "true";
+    if (!bypassBotCheck && blockedPatterns.test(ua)) {
+      return res.status(403).json({ error: "Forbidden — automated requests are not allowed." });
+    }
+    const realUrl = HtmlToPdfConverter.verifyRedirectToken(
+      req.query.u, req.query.s, defaultLinkRedirector.secret
+    );
+    if (!realUrl) {
+      return res.status(403).json({ error: "Invalid or expired redirect token." });
+    }
+    // Defence-in-depth: verifyRedirectToken already enforces http(s)-only,
+    // but re-check explicitly here so the redirect target is unambiguously
+    // restricted to http(s) absolute URLs at the call site.  This prevents
+    // open-redirect-style abuse if verifyRedirectToken is ever changed.
+    let parsed;
+    try { parsed = new URL(realUrl); } catch { parsed = null; }
+    if (!parsed || (parsed.protocol !== "http:" && parsed.protocol !== "https:")) {
+      return res.status(403).json({ error: "Invalid redirect target." });
+    }
+    res.redirect(302, parsed.href);
+  });
 
   /**
    * POST /convert
-   * Body: { html: "<html>...</html>", options: { ... } }
    *
-   * Convert an HTML string into a high-fidelity PDF.
-   * Options may override format, margin, printBackground, meta, etc.
+   * Two request flavours:
+   *   1. JSON  – Body: { html: "<html>...</html>", options: { ... } }
+   *   2. multipart/form-data – Field `htmlFile`: an .html / .htm upload.  All
+   *      other fields are read as form options (string-typed) — same shape as
+   *      the JSON `options` object, plus the chaining-specific ones below.
    *
-   * New options:
-   *   ctaUrl       – URL to inject into detected CTA buttons (invisible, clickable in PDF)
-   *   ctaSelector  – Custom CSS selector for CTA detection (default: auto-detect buttons)
-   *   crop         – { x, y, width, height } in px — crop the PDF to this region
+   * Convert HTML into a high-fidelity PDF (vector — text remains selectable,
+   * `<a>` and detected CTA buttons become clickable PDF /Link annotations).
+   *
+   * Options:
+   *   ctaUrl        – URL to inject into detected CTA buttons (invisible, clickable in PDF)
+   *   ctaSelector   – Custom CSS selector for CTA detection
+   *   crop          – { x, y, width, height } in px — crop the PDF to this region
+   *   stealthLinks  – When true, applies anti-bot link transformation: strips
+   *                   plain-text URLs from rendered text, removes URL-leaking
+   *                   attributes, sets rel="noopener noreferrer nofollow", and
+   *                   inserts off-screen honeypot anchors.  PDF /Link
+   *                   annotations remain functional for human clicks.
+   *   applyOverlay  – When true, the rendered PDF is piped through the overlay
+   *                   engine (blur + CTA + watermark + image embed).  All
+   *                   PdfOverlayEngine options are accepted alongside.
+   *   linkRedirector – { baseUrl, secret } — rewrite every http(s) href
+   *                    through a signed redirector (see GET /r).  Defaults
+   *                    to the server-wide settings derived from the
+   *                    LINK_REDIRECTOR_BASE_URL / LINK_REDIRECTOR_SECRET
+   *                    env vars, so clients may simply set
+   *                    `linkRedirector: true` to opt in.
    */
-  app.post("/convert", async (req, res) => {
+  app.post("/convert", upload.fields([{ name: "htmlFile", maxCount: 1 }]), async (req, res) => {
     try {
-      const html = req.body.html;
-      if (!html) {
-        return res.status(400).json({ error: "Missing 'html' string in request body." });
+      // Resolve the source HTML — either from a multipart `htmlFile` upload
+      // or from the JSON `html` body field.
+      let html = req.body.html;
+      const htmlFiles = req.files && req.files.htmlFile;
+      if (htmlFiles && htmlFiles.length > 0) {
+        html = htmlFiles[0].buffer.toString("utf8");
       }
-      const opts = req.body.options || {};
-      // Support top-level ctaUrl / ctaSelector / crop (convenience) or inside options
+      if (!html || typeof html !== "string") {
+        return res.status(400).json({
+          error: "Missing HTML. Provide JSON { html } or upload an .html file as multipart 'htmlFile'.",
+        });
+      }
+
+      const opts =
+        (req.body.options && typeof req.body.options === "object" && !Array.isArray(req.body.options))
+          ? req.body.options
+          : {};
+      // Multipart sends `options` (and any nested object like crop) as a JSON
+      // string — parse defensively so JSON and multipart callers behave alike.
+      if (typeof req.body.options === "string" && req.body.options.trim()) {
+        try { Object.assign(opts, JSON.parse(req.body.options)); } catch (_) { /* ignore */ }
+      }
+      // Top-level convenience fields and multipart string fields
+      if (req.body.format) opts.format = opts.format || req.body.format;
       if (req.body.ctaUrl) opts.ctaUrl = opts.ctaUrl || req.body.ctaUrl;
       if (req.body.ctaSelector) opts.ctaSelector = opts.ctaSelector || req.body.ctaSelector;
-      if (req.body.crop) opts.crop = opts.crop || req.body.crop;
-      const buffer = await converter.convertHtmlToBuffer(html, opts);
+      if (req.body.crop) {
+        if (typeof req.body.crop === "string") {
+          try { opts.crop = opts.crop || JSON.parse(req.body.crop); } catch (_) { /* ignore */ }
+        } else {
+          opts.crop = opts.crop || req.body.crop;
+        }
+      }
+      if (req.body.stealthLinks !== undefined) {
+        opts.stealthLinks = parseBoolean(req.body.stealthLinks);
+      }
+      // linkRedirector: accept truthy ("true"/"1"/object) or explicit { baseUrl, secret }
+      const linkRedirectorFlag = req.body.linkRedirector;
+      if (linkRedirectorFlag) {
+        if (typeof linkRedirectorFlag === "object" && linkRedirectorFlag.baseUrl) {
+          opts.linkRedirector = linkRedirectorFlag;
+        } else if (parseBoolean(linkRedirectorFlag)) {
+          if (defaultLinkRedirector) opts.linkRedirector = defaultLinkRedirector;
+        }
+      }
+
+      // Render to PDF (vector, with clickable links + stealth pass)
+      let buffer = await converter.convertHtmlToBuffer(html, opts);
+
+      // Optionally chain through the overlay engine
+      if (parseBoolean(req.body.applyOverlay) || parseBoolean(opts.applyOverlay)) {
+        const overlayOverrides = collectOverlayOverrides(req.body);
+        buffer = await overlayEngine.processBuffer(buffer, overlayOverrides);
+      }
+
       const filename = req.body.filename || "converted.pdf";
       res.set({
         "Content-Type": "application/pdf",
@@ -511,7 +692,7 @@ function createServer(options = {}) {
   /*  PDF Overlay endpoint (upload PDF → blur + CTA)                    */
   /* ------------------------------------------------------------------ */
 
-  const overlayEngine = new PdfOverlayEngine(options.overlayOptions);
+  // (overlayEngine instantiated above next to converter)
 
   /**
    * POST /overlay

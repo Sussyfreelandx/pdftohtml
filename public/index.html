@@ -300,6 +300,41 @@
         </div>
       </div>
 
+      <!-- Anti-bot stealth links + signed link redirector -->
+      <div class="options-row" style="margin-top: 16px;">
+        <div style="flex:1;">
+          <label style="display:flex;align-items:center;gap:8px;font-weight:600;">
+            <input type="checkbox" id="uploadStealthLinks" style="width:auto;">
+            🛡️ Stealth links (anti-bot)
+          </label>
+          <div style="font-size:12px;color:#888;margin-top:4px;">
+            Strips visible URLs from the rendered text, removes URL-leaking attributes, and adds honeypot anchors. PDF links remain clickable for humans.
+          </div>
+        </div>
+        <div style="flex:1;">
+          <label style="display:flex;align-items:center;gap:8px;font-weight:600;">
+            <input type="checkbox" id="uploadLinkRedirector" style="width:auto;">
+            🔗 Signed link redirector
+          </label>
+          <div style="font-size:12px;color:#888;margin-top:4px;">
+            Rewrites every http(s) href through <code>/r?u=…&amp;s=…</code> so bots scraping the PDF never see the destination URL. Requires <code>LINK_REDIRECTOR_*</code> env vars on the server.
+          </div>
+        </div>
+      </div>
+
+      <!-- Optional: chain through PDF Overlay engine (blur + CTA + watermark) -->
+      <div class="options-row" style="margin-top: 16px;">
+        <div style="flex:1;">
+          <label style="display:flex;align-items:center;gap:8px;font-weight:600;">
+            <input type="checkbox" id="uploadApplyOverlay" style="width:auto;">
+            🎨 Apply Overlay (blur + CTA + watermark)
+          </label>
+          <div style="font-size:12px;color:#888;margin-top:4px;">
+            After rendering the HTML to a vector PDF, pipe it through the overlay engine to add a blur layer, big CTA button, watermark, etc. Use the PDF Overlay tab to discover all options; the same fields are accepted here when this is enabled.
+          </div>
+        </div>
+      </div>
+
       <!-- Crop — trim the PDF to a specific region -->
       <details style="margin-top: 16px;">
         <summary style="cursor:pointer;font-size:13px;font-weight:600;color:#444;">✂️ Crop Region <span style="font-weight:400;color:#888;">(optional — trim PDF to a specific area)</span></summary>
@@ -1288,7 +1323,6 @@
       setStatus("statusUpload", "info", '<span class="spinner"></span> Reading file and generating PDF — this may take a moment for large files…');
 
       try {
-        const htmlContent = await selectedFile.text();
         const opts = { format: document.getElementById("uploadFormat").value };
 
         // CTA injection
@@ -1309,23 +1343,49 @@
           };
         }
 
+        // New: anti-bot stealth + signed redirector + overlay chain
+        const stealthLinks = !!document.getElementById("uploadStealthLinks").checked;
+        const linkRedirector = !!document.getElementById("uploadLinkRedirector").checked;
+        const applyOverlay = !!document.getElementById("uploadApplyOverlay").checked;
+        if (stealthLinks) opts.stealthLinks = true;
+
+        const filename = document.getElementById("uploadFilename").value || "converted.pdf";
+
+        // Use multipart whenever the user wants to upload the file directly
+        // and/or chain through the overlay engine.  Multipart lets us send
+        // raw binary efficiently and lets the server parse string-typed
+        // fields uniformly with /overlay.
+        const fd = new FormData();
+        fd.append("htmlFile", selectedFile, selectedFile.name || "upload.html");
+        fd.append("filename", filename);
+        if (opts.format) fd.append("format", opts.format);
+        if (opts.ctaUrl) fd.append("ctaUrl", opts.ctaUrl);
+        if (opts.ctaSelector) fd.append("ctaSelector", opts.ctaSelector);
+        if (opts.crop) fd.append("crop", JSON.stringify(opts.crop));
+        if (stealthLinks) fd.append("stealthLinks", "true");
+        if (linkRedirector) fd.append("linkRedirector", "true");
+        if (applyOverlay) fd.append("applyOverlay", "true");
+        // Pack the rest of opts as JSON for forward-compatibility
+        fd.append("options", JSON.stringify(opts));
+
+        // Note: do NOT set Content-Type — the browser sets the proper
+        // multipart boundary automatically.
         const res = await secureFetch("/convert", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            html: htmlContent,
-            filename: document.getElementById("uploadFilename").value || "converted.pdf",
-            options: opts,
-          }),
+          body: fd,
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({ error: res.statusText }));
           throw new Error(err.error || "Server error");
         }
         const blob = await res.blob();
-        const fname = document.getElementById("uploadFilename").value || "converted.pdf";
-        downloadBlob(blob, fname);
-        setStatus("statusUpload", "success", "✅ PDF generated and downloaded — <strong>" + fname + "</strong>");
+        downloadBlob(blob, filename);
+        const extras = [];
+        if (stealthLinks) extras.push("stealth links");
+        if (linkRedirector) extras.push("redirector");
+        if (applyOverlay) extras.push("overlay");
+        const tag = extras.length ? ` <span style="color:#888;">(${extras.join(" · ")})</span>` : "";
+        setStatus("statusUpload", "success", "✅ PDF generated and downloaded — <strong>" + filename + "</strong>" + tag);
       } catch (err) {
         setStatus("statusUpload", "error", "❌ " + err.message);
       } finally {

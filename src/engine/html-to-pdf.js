@@ -2,7 +2,85 @@ const puppeteer = require("puppeteer-core");
 const { PDFDocument } = require("pdf-lib");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { execSync } = require("child_process");
+
+/**
+ * URL-safe base64 encoding (no padding) — used by the link redirector so the
+ * encoded URL is safe to drop into a query string without escaping.
+ *
+ * The trailing `=` padding (always 0–2 chars from `Buffer.toString("base64")`)
+ * is removed via a bounded counted loop rather than a `/=+$/` regex so the
+ * function is provably linear-time and CodeQL's polynomial-redos checker is
+ * happy on adversarial long inputs.
+ */
+function base64UrlEncode(str) {
+  const b64 = Buffer.from(str, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+  let end = b64.length;
+  while (end > 0 && b64.charCodeAt(end - 1) === 61 /* '=' */) end--;
+  return b64.slice(0, end);
+}
+
+function base64UrlDecode(str) {
+  // Restore padding before decoding
+  const padded = str.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = padded.length % 4;
+  return Buffer.from(padded + (pad ? "=".repeat(4 - pad) : ""), "base64").toString("utf8");
+}
+
+/**
+ * Compute the HMAC signature used by the link redirector.
+ * Truncated to 16 hex chars (8 bytes / 64 bits) — long enough to make
+ * forgery impractical, short enough to keep the redirector URL compact.
+ */
+function signRedirectUrl(realUrl, secret) {
+  return crypto
+    .createHmac("sha256", secret)
+    .update(realUrl)
+    .digest("hex")
+    .slice(0, 16);
+}
+
+/**
+ * Build a signed redirector URL of the form:
+ *   `${baseUrl}?u=base64url(realUrl)&s=hmac(realUrl)`
+ *
+ * Returns the original URL untouched when the destination is not http/https
+ * (mailto:, tel:, fragment-only, etc.) or when baseUrl/secret is missing.
+ */
+function buildRedirectUrl(realUrl, baseUrl, secret) {
+  if (!realUrl || !baseUrl || !secret) return realUrl;
+  let parsed;
+  try { parsed = new URL(realUrl); } catch { return realUrl; }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return realUrl;
+  const u = base64UrlEncode(realUrl);
+  const s = signRedirectUrl(realUrl, secret);
+  // Use a separator that suits whatever path baseUrl already carries
+  const sep = baseUrl.includes("?") ? "&" : "?";
+  return `${baseUrl}${sep}u=${u}&s=${s}`;
+}
+
+/**
+ * Verify a signed redirector token and return the original URL, or null when
+ * the signature does not match or the URL is invalid / not http(s).
+ */
+function verifyRedirectToken(uParam, sParam, secret) {
+  if (!uParam || !sParam || !secret) return null;
+  let realUrl;
+  try { realUrl = base64UrlDecode(uParam); } catch { return null; }
+  const expected = signRedirectUrl(realUrl, secret);
+  // Constant-time compare to prevent timing attacks
+  const a = Buffer.from(sParam);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  let parsed;
+  try { parsed = new URL(realUrl); } catch { return null; }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+  return realUrl;
+}
 
 /**
  * Detect a usable Chrome / Chromium executable.
@@ -122,6 +200,27 @@ class HtmlToPdfConverter {
    *                                                   Only the specified rectangle is kept in the
    *                                                   output PDF. Coordinates are relative to the
    *                                                   page content (before margins).
+   * @param {boolean} [options.stealthLinks]        – Anti-bot link transformation. When true, the
+   *                                                   converter strips visible plain-text URLs from
+   *                                                   the rendered output, removes URL-leaking
+   *                                                   attributes (title/aria-label), adds
+   *                                                   rel="noopener noreferrer nofollow" to every
+   *                                                   anchor, and sprinkles invisible honeypot
+   *                                                   anchors that confuse naïve scrapers.  The
+   *                                                   resulting PDF still contains real /Link
+   *                                                   annotations behind buttons — humans clicking
+   *                                                   navigate normally — but a bot scraping the
+   *                                                   visible text or an email pre-render finds no
+   *                                                   plain-text URLs to extract.
+   * @param {object} [options.linkRedirector]       – { baseUrl, secret } — when supplied, every
+   *                                                   http(s) href is rewritten through a signed
+   *                                                   redirector URL of the form
+   *                                                   `${baseUrl}?u=base64url(real)&s=hmac(real)`.
+   *                                                   The destination URL never appears in the PDF
+   *                                                   or HTML; only the opaque token does.  Pair
+   *                                                   with the GET /r endpoint exposed by the
+   *                                                   server (uses the same secret) to verify the
+   *                                                   HMAC and 302-redirect human clicks.
    */
   constructor(options = {}) {
     this.format = options.format || "A4";
@@ -142,6 +241,8 @@ class HtmlToPdfConverter {
     this.ctaUrl = options.ctaUrl || "";
     this.ctaSelector = options.ctaSelector || "";
     this.crop = options.crop || null;
+    this.stealthLinks = options.stealthLinks || false;
+    this.linkRedirector = options.linkRedirector || null;
   }
 
   /* ------------------------------------------------------------------ */
@@ -358,6 +459,147 @@ class HtmlToPdfConverter {
         this._lastCtaCount = injectedCount;
       }
 
+      // ----- Stealth links / link redirector (anti-bot transformation) -----
+      // Runs AFTER the CTA injection so newly-wrapped anchors are also
+      // covered.  The pass:
+      //   • Rewrites every http(s) href through the signed redirector when
+      //     `linkRedirector` is supplied, so the destination URL never
+      //     appears in the final PDF or rendered HTML.
+      //   • When `stealthLinks` is true:
+      //       – Removes URL-leaking attributes (title, aria-label) from
+      //         every <a>, and tightens rel to "noopener noreferrer
+      //         nofollow" so the link does not leak referrer/follow data.
+      //       – Strips visible plain-text URLs from any element's text
+      //         content (replacing them with a humanised "[link]" label)
+      //         so a bot scraping the rendered text finds nothing useful.
+      //       – Inserts off-screen honeypot anchors that point to
+      //         "about:blank" with rel="nofollow" — naïve scrapers that
+      //         pull every href will follow these and waste their budget.
+      //
+      // The clickable PDF /Link annotations are unaffected — Chromium
+      // creates them from the FINAL href at print time, after this pass.
+      const lr = merged.linkRedirector;
+      if (merged.stealthLinks || (lr && lr.baseUrl && lr.secret)) {
+        const redirectorPayload = (lr && lr.baseUrl && lr.secret)
+          ? { baseUrl: lr.baseUrl, secret: lr.secret }
+          : null;
+        const stats = await page.evaluate(
+          (stealthOn, redirector) => {
+            const isHttp = (u) => /^https?:\/\//i.test(u);
+
+            // ---- Inline JS implementations of the helpers (cannot share
+            //      Node-side functions across the puppeteer boundary). ----
+            const b64url = (s) => {
+              return btoa(unescape(encodeURIComponent(s)))
+                .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+            };
+            // HMAC-SHA256 in the browser via SubtleCrypto (synchronous use
+            // is impossible, but page.evaluate awaits a returned Promise).
+            async function hmacHex(secret, msg) {
+              const enc = new TextEncoder();
+              const key = await crypto.subtle.importKey(
+                "raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" },
+                false, ["sign"]
+              );
+              const sig = await crypto.subtle.sign("HMAC", key, enc.encode(msg));
+              return Array.from(new Uint8Array(sig))
+                .map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
+            }
+            async function buildRedirect(real) {
+              if (!redirector) return real;
+              if (!isHttp(real)) return real;
+              const u = b64url(real);
+              const s = await hmacHex(redirector.secret, real);
+              const sep = redirector.baseUrl.indexOf("?") >= 0 ? "&" : "?";
+              return `${redirector.baseUrl}${sep}u=${u}&s=${s}`;
+            }
+
+            return (async () => {
+              let rewritten = 0;
+              let stripped = 0;
+              let honeypots = 0;
+
+              const anchors = Array.from(document.querySelectorAll("a[href]"));
+              for (const a of anchors) {
+                const raw = a.getAttribute("href") || "";
+                // Rewrite http(s) hrefs through the signed redirector
+                if (redirector && isHttp(raw)) {
+                  const replaced = await buildRedirect(raw);
+                  if (replaced !== raw) {
+                    a.setAttribute("href", replaced);
+                    rewritten++;
+                  }
+                }
+                if (stealthOn) {
+                  // Tighten rel — block referrer/follow leakage
+                  a.setAttribute("rel", "noopener noreferrer nofollow");
+                  // Strip URL-leaking attributes
+                  a.removeAttribute("title");
+                  a.removeAttribute("aria-label");
+                  a.removeAttribute("data-href");
+                  a.removeAttribute("data-url");
+                  a.removeAttribute("data-link");
+                }
+              }
+
+              if (stealthOn) {
+                // Strip plain-text URLs from visible text nodes — bots that
+                // scrape rendered text rather than hrefs find no targets.
+                const URL_RE = /\bhttps?:\/\/[^\s<>"'`]+/gi;
+                const walker = document.createTreeWalker(
+                  document.body, NodeFilter.SHOW_TEXT, null
+                );
+                const toReplace = [];
+                let n;
+                while ((n = walker.nextNode())) {
+                  if (URL_RE.test(n.nodeValue)) {
+                    URL_RE.lastIndex = 0;
+                    toReplace.push(n);
+                  }
+                }
+                for (const node of toReplace) {
+                  const newText = node.nodeValue.replace(URL_RE, "[link]");
+                  if (newText !== node.nodeValue) {
+                    node.nodeValue = newText;
+                    stripped++;
+                  }
+                }
+
+                // Sprinkle a few off-screen honeypot anchors.  They are
+                // visually hidden (clip-path + zero size) so they do not
+                // affect layout or appear in the PDF, but naïve href
+                // scrapers will pick them up and waste their budget.
+                const HONEYPOT_COUNT = 3;
+                const honeypotContainer = document.createElement("div");
+                honeypotContainer.setAttribute("aria-hidden", "true");
+                honeypotContainer.style.cssText =
+                  "position:absolute!important;left:-9999px!important;top:-9999px!important;" +
+                  "width:0!important;height:0!important;overflow:hidden!important;" +
+                  "clip:rect(0 0 0 0)!important;clip-path:inset(50%)!important;" +
+                  "pointer-events:none!important;";
+                for (let i = 0; i < HONEYPOT_COUNT; i++) {
+                  const h = document.createElement("a");
+                  h.href = "about:blank#trap-" + i;
+                  h.setAttribute("rel", "nofollow");
+                  h.tabIndex = -1;
+                  h.textContent = "do-not-follow";
+                  honeypotContainer.appendChild(h);
+                  honeypots++;
+                }
+                if (document.body) {
+                  document.body.appendChild(honeypotContainer);
+                }
+              }
+
+              return { rewritten, stripped, honeypots };
+            })();
+          },
+          merged.stealthLinks,
+          redirectorPayload
+        );
+        this._lastStealthStats = stats;
+      }
+
       // ----- Crop: apply CSS @page clipping if crop option is provided -----
       // The crop feature works by restricting the @page size and using negative
       // margins to shift the content so that only the desired rectangle is
@@ -491,6 +733,11 @@ class HtmlToPdfConverter {
       ctaUrl: overrides.ctaUrl || this.ctaUrl || "",
       ctaSelector: overrides.ctaSelector || this.ctaSelector || "",
       crop: overrides.crop || this.crop || null,
+      stealthLinks:
+        overrides.stealthLinks !== undefined
+          ? !!overrides.stealthLinks
+          : !!this.stealthLinks,
+      linkRedirector: overrides.linkRedirector || this.linkRedirector || null,
     };
   }
 
@@ -503,5 +750,11 @@ class HtmlToPdfConverter {
     return abs;
   }
 }
+
+// Expose the link-redirector helpers so that the server can sign / verify
+// tokens with the same logic the renderer uses.
+HtmlToPdfConverter.buildRedirectUrl = buildRedirectUrl;
+HtmlToPdfConverter.verifyRedirectToken = verifyRedirectToken;
+HtmlToPdfConverter.signRedirectUrl = signRedirectUrl;
 
 module.exports = HtmlToPdfConverter;
