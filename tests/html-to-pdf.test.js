@@ -178,6 +178,67 @@ describe("HtmlToPdfConverter", () => {
     const buf = await converter.convertHtmlToBuffer(html, { waitForContent: false });
     expect(buf.slice(0, 5).toString()).toBe("%PDF-");
   }, 30000);
+
+  test("preserves action buttons hidden by @media print { display:none }", async () => {
+    // Without preserveActionButtons, this button would be stripped from the
+    // PDF because Puppeteer renders with the print media type emulated.
+    const html = `
+      <html><head><style>
+        @media print {
+          button, .btn, .cta { display: none !important; }
+          .action-bar { display: none !important; }
+        }
+      </style></head><body>
+        <h1>Newsletter</h1>
+        <p>Click below to confirm your subscription.</p>
+        <button>Confirm Subscription</button>
+        <a class="btn" href="https://example.com/x">Open</a>
+        <div class="action-bar">
+          <a class="cta" href="https://example.com/y">Hidden ancestor button</a>
+        </div>
+      </body></html>
+    `;
+    const buf = await converter.convertHtmlToBuffer(html);
+    expect(buf.slice(0, 5).toString()).toBe("%PDF-");
+    const raw = buf.toString("latin1");
+    // /Link annotations are only emitted when Chromium can lay the anchor
+    // out — they prove the buttons were rendered, not stripped.
+    expect(raw).toContain("/Annot");
+    expect(raw).toContain("example.com/x");
+    expect(raw).toContain("example.com/y");
+  }, 30000);
+
+  test("preserveActionButtons: false respects the source page's print CSS", async () => {
+    const html = `
+      <html><head><style>
+        @media print { button, .btn { display: none !important; } }
+      </style></head><body>
+        <button>Should be hidden</button>
+        <a class="btn" href="https://example.com/should-not-link">Hidden</a>
+      </body></html>
+    `;
+    const buf = await converter.convertHtmlToBuffer(html, {
+      preserveActionButtons: false,
+    });
+    expect(buf.slice(0, 5).toString()).toBe("%PDF-");
+    const raw = buf.toString("latin1");
+    // With the option off, the print CSS wins and the link annotation is
+    // not emitted because the anchor has zero layout area.
+    expect(raw).not.toContain("example.com/should-not-link");
+  }, 30000);
+
+  test("strips the `hidden` attribute from action buttons", async () => {
+    const html = `
+      <html><body>
+        <p>Action below:</p>
+        <a class="cta" href="https://example.com/hidden-attr" hidden>Click</a>
+      </body></html>
+    `;
+    const buf = await converter.convertHtmlToBuffer(html);
+    const raw = buf.toString("latin1");
+    expect(raw).toContain("/Annot");
+    expect(raw).toContain("example.com/hidden-attr");
+  }, 30000);
 });
 
 /* ------------------------------------------------------------------ */

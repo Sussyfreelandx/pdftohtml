@@ -233,6 +233,13 @@ class HtmlToPdfConverter {
    *                                                   complete (all bounded by `timeout`).  Disable
    *                                                   only if the source HTML is fully static and
    *                                                   the extra waiting noticeably slows conversion.
+   * @param {boolean} [options.preserveActionButtons=true] – Keep action buttons (CTAs, `<button>`,
+   *                                                   `.btn`, `.cta`, `[role=button]`, etc.) visible
+   *                                                   in the PDF even when the source HTML hides
+   *                                                   them via `@media print { display:none }` or
+   *                                                   the `hidden` HTML attribute.  Disable only
+   *                                                   when you specifically want a print-style
+   *                                                   document with no interactive controls.
    */
   constructor(options = {}) {
     this.format = options.format || "A4";
@@ -261,6 +268,12 @@ class HtmlToPdfConverter {
     // Defaults to true so the rendered PDF reliably contains every visual
     // element of the source HTML.  Callers can opt out with waitForContent:false.
     this.waitForContent = options.waitForContent !== false;
+    // Print stylesheets in the source HTML often hide action buttons via
+    // `@media print { button, .btn, .cta { display: none } }`.  When
+    // preserveActionButtons is true (default), we inject high-specificity
+    // !important overrides — and a small JS pass — so action buttons are
+    // never silently dropped from the rendered PDF.
+    this.preserveActionButtons = options.preserveActionButtons !== false;
   }
 
   /* ------------------------------------------------------------------ */
@@ -459,6 +472,84 @@ class HtmlToPdfConverter {
           a, button, [role="button"] { page-break-inside: avoid; break-inside: avoid; }
         `,
       });
+
+      // ----- Preserve action buttons under print media --------------------
+      // Many HTML templates ship `@media print { button, .btn, .cta {
+      // display: none } }` rules to strip interactive controls from print
+      // previews.  Because Puppeteer renders the PDF with the print media
+      // type emulated, those rules silently drop the user's call-to-action
+      // buttons from the final document.
+      //
+      // We undo that by:
+      //   1. Injecting a higher-specificity `@media print` override that
+      //      forces every CTA-like element to display:inline-block,
+      //      visibility:visible, opacity:1 — using !important to win the
+      //      cascade.  The `:has()` selectors also unhide any ancestor
+      //      container that was print-hidden but wraps an action button.
+      //   2. A short JS pass that strips the HTML `hidden` attribute and
+      //      the `inert` attribute from CTA elements (CSS cannot override
+      //      these), and clears any inline `display:none` set by author
+      //      JS or print-targeted scripts.
+      //
+      // Default-on; callers can opt out with preserveActionButtons:false
+      // (e.g. when they explicitly want a print-style document with no
+      // interactive controls).
+      if (merged.preserveActionButtons) {
+        const ctaSel = merged.ctaSelector || HtmlToPdfConverter.CTA_SELECTOR;
+        await page.addStyleTag({
+          content: `
+            @media print {
+              ${ctaSel} {
+                display: inline-block !important;
+                visibility: visible !important;
+                opacity: 1 !important;
+              }
+              /* Unhide ancestor containers that wrap a button-like child */
+              *:has(> button),
+              *:has(> .btn),
+              *:has(> .cta),
+              *:has(> .button),
+              *:has(> [role="button"]),
+              *:has(> a.btn),
+              *:has(> a.cta),
+              *:has(> a.button),
+              *:has(> input[type="submit"]),
+              *:has(> input[type="button"]) {
+                display: revert !important;
+                visibility: visible !important;
+                opacity: 1 !important;
+              }
+            }
+          `,
+        });
+
+        const preservedCount = await page.evaluate((selector) => {
+          let count = 0;
+          const els = document.querySelectorAll(selector);
+          for (const el of els) {
+            // The `hidden` attribute and `inert` attribute hide elements
+            // independently of CSS — strip them on CTA-like elements.
+            if (el.hasAttribute("hidden")) {
+              el.removeAttribute("hidden");
+              count++;
+            }
+            if (el.hasAttribute("inert")) {
+              el.removeAttribute("inert");
+            }
+            // Inline display:none beats stylesheet `!important` rules for
+            // the *element*, so promote it back to a visible default.
+            if (el.style && el.style.display === "none") {
+              el.style.setProperty("display", "inline-block", "important");
+              count++;
+            }
+            if (el.style && el.style.visibility === "hidden") {
+              el.style.setProperty("visibility", "visible", "important");
+            }
+          }
+          return count;
+        }, ctaSel);
+        this._lastPreservedActionButtons = preservedCount;
+      }
 
       // ----- CTA button detection & invisible link injection --------------
       // When ctaUrl is supplied, the engine scans the DOM for button-like
@@ -882,6 +973,10 @@ class HtmlToPdfConverter {
         overrides.waitForContent !== undefined
           ? overrides.waitForContent !== false
           : this.waitForContent !== false,
+      preserveActionButtons:
+        overrides.preserveActionButtons !== undefined
+          ? overrides.preserveActionButtons !== false
+          : this.preserveActionButtons !== false,
     };
   }
 
