@@ -1329,11 +1329,6 @@
           // converter still supports smartResize:true for explicit API callers,
           // but raw HTML uploads should not be zoomed or widened automatically.
           smartResize: false,
-          // Keep the PDF page dimensions equal to the rendered HTML's
-          // scrollWidth/scrollHeight in CSS pixels — this prevents Chromium
-          // from shrinking the content to fit A4 and produces a 1:1 PDF that
-          // matches what the user sees in their browser.
-          preserveOriginalSize: true,
         };
 
         // CTA injection
@@ -1371,7 +1366,6 @@
         fd.append("filename", filename);
         if (opts.format) fd.append("format", opts.format);
         fd.append("smartResize", "false");
-        fd.append("preserveOriginalSize", "true");
         if (opts.ctaUrl) fd.append("ctaUrl", opts.ctaUrl);
         if (opts.ctaSelector) fd.append("ctaSelector", opts.ctaSelector);
         if (opts.crop) fd.append("crop", JSON.stringify(opts.crop));

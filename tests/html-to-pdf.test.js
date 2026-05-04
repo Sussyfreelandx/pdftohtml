@@ -96,59 +96,6 @@ describe("HtmlToPdfConverter", () => {
     expect(localConverter._lastSmartResize.scaleFactor).toBeLessThan(1);
   }, 30000);
 
-  test("preserveOriginalSize produces a PDF whose page size matches content", async () => {
-    const { PDFDocument } = require("pdf-lib");
-    const localConverter = new HtmlToPdfConverter();
-    const html = `<!DOCTYPE html>
-      <html><body style="margin:0;padding:0">
-        <div style="width:900px;height:600px;background:#0B6623"></div>
-      </body></html>
-    `;
-    const buf = await localConverter.convertHtmlToBuffer(html, {
-      preserveOriginalSize: true,
-    });
-    expect(buf.slice(0, 5).toString()).toBe("%PDF-");
-    expect(localConverter._lastPreserveOriginalSize.enabled).toBe(true);
-    expect(localConverter._lastPreserveOriginalSize.action).toBe("applied");
-    // Width should be at least the 900px content width (the viewport may
-    // extend it to the default 1280px since <body> fills its container —
-    // that mirrors what the browser shows in a 1280-wide window).
-    expect(localConverter._lastPreserveOriginalSize.widthPx).toBeGreaterThanOrEqual(900);
-    // Height should track the 600px div closely (within rounding + body margins).
-    expect(localConverter._lastPreserveOriginalSize.heightPx).toBeGreaterThanOrEqual(600);
-    expect(localConverter._lastPreserveOriginalSize.heightPx).toBeLessThanOrEqual(620);
-
-    // Verify the PDF MediaBox actually reflects that size: 1 CSS px = 0.75 pt
-    // (Chromium uses 96 DPI so 96px = 72pt = 1in).
-    const doc = await PDFDocument.load(buf);
-    const page = doc.getPages()[0];
-    const { width: ptWidth, height: ptHeight } = page.getSize();
-    const expectedWidthPt =
-      localConverter._lastPreserveOriginalSize.widthPx * 0.75;
-    const expectedHeightPt =
-      localConverter._lastPreserveOriginalSize.heightPx * 0.75;
-    expect(Math.abs(ptWidth - expectedWidthPt)).toBeLessThan(1);
-    expect(Math.abs(ptHeight - expectedHeightPt)).toBeLessThan(1);
-    // Sanity check: the PDF must NOT have been shrunk to A4 width (~595pt).
-    expect(ptWidth).toBeGreaterThan(600);
-  }, 30000);
-
-  test("preserveOriginalSize widens viewport for wide content (no shrink)", async () => {
-    const localConverter = new HtmlToPdfConverter();
-    const html = `<!DOCTYPE html>
-      <html><body style="margin:0;padding:0">
-        <div style="width:1800px;height:300px;background:#123"></div>
-      </body></html>
-    `;
-    const buf = await localConverter.convertHtmlToBuffer(html, {
-      preserveOriginalSize: true,
-    });
-    expect(buf.slice(0, 5).toString()).toBe("%PDF-");
-    // The content is 1800px wide, so the PDF page width should also be ≥1800px,
-    // proving Chromium did NOT fit-to-A4 (A4 ≈ 794px @ 96 DPI).
-    expect(localConverter._lastPreserveOriginalSize.widthPx).toBeGreaterThanOrEqual(1800);
-  }, 30000);
-
   test("renders the sample-page.html example", async () => {
     const html = fs.readFileSync(
       path.join(__dirname, "..", "examples", "sample-page.html"),

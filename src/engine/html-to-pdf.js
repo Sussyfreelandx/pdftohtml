@@ -198,18 +198,6 @@ class HtmlToPdfConverter {
  *                                                   authored CSS/browser size without zooming or
  *                                                   viewport widening. Set true only when callers
  *                                                   explicitly want wide content scaled/fit.
- * @param {boolean} [options.preserveOriginalSize=false] – When true, the PDF page size is set
- *                                                   to match the rendered HTML's actual
- *                                                   scrollWidth/scrollHeight (in CSS pixels),
- *                                                   `format` is ignored, margins are forced to
- *                                                   zero, and the viewport is widened to fit the
- *                                                   content's natural width. The result is a
- *                                                   1:1 PDF where 1 CSS pixel maps to 1 PDF
- *                                                   pixel — i.e. the PDF looks exactly like the
- *                                                   HTML does in a browser, with no fit-to-page
- *                                                   shrinking. This option overrides `format`
- *                                                   and any explicit margins, and is mutually
- *                                                   exclusive with `crop` (crop wins).
  * @param {string} [options.ctaUrl]               – URL to inject into detected CTA buttons
  * @param {string} [options.ctaSelector]          – Custom CSS selector for CTA detection
    *                                                   (default: HtmlToPdfConverter.CTA_SELECTOR)
@@ -256,7 +244,6 @@ class HtmlToPdfConverter {
     this.mediaType = options.mediaType || "print";
     this.meta = options.meta || {};
     this.smartResize = options.smartResize === true;
-    this.preserveOriginalSize = options.preserveOriginalSize === true;
     this.ctaUrl = options.ctaUrl || "";
     this.ctaSelector = options.ctaSelector || "";
     this.crop = options.crop || null;
@@ -684,91 +671,6 @@ class HtmlToPdfConverter {
         }, merged.meta.title);
       }
 
-      // ----- Preserve original HTML pixel size in the PDF -------------------
-      // When preserveOriginalSize is true (and crop is NOT in use, since crop
-      // sets its own @page size), measure the actual rendered scrollWidth /
-      // scrollHeight of the content and produce a PDF whose page size matches
-      // the content exactly.  This avoids Chromium's default fit-to-A4
-      // scaling which makes the PDF look smaller than the HTML in a browser.
-      // With matching width/height in CSS pixels and zero margins, 1 CSS px
-      // maps to 1 PDF px, i.e. the PDF reproduces the browser rendering 1:1.
-      this._lastPreserveOriginalSize = {
-        enabled: merged.preserveOriginalSize === true,
-        action: "disabled",
-      };
-      if (merged.preserveOriginalSize === true && !merged.crop) {
-        // Force Chromium to lay out at the screen media so dimensions reflect
-        // the on-screen browser size (print stylesheets often reflow content
-        // narrower).  We only switch if the caller didn't explicitly request
-        // print emulation in this call.
-        if (merged.mediaType === "print") {
-          await page.emulateMediaType("screen");
-        }
-
-        // Measure rendered content dimensions in CSS pixels.
-        // For width, include clientWidth so narrow content reports the
-        // viewport width (which is what the browser shows when the body
-        // fills its container — matches "as displayed in browser").
-        // For height, prefer body.scrollHeight; fall back to the maximum
-        // bottom edge of body children (handles quirks-mode pages where
-        // body.scrollHeight inherits the viewport height).
-        const measure = () =>
-          page.evaluate(() => {
-            const body = document.body;
-            const html = document.documentElement;
-            const width = Math.max(
-              body ? body.scrollWidth : 0,
-              html ? html.scrollWidth : 0,
-              html ? html.clientWidth : 0
-            );
-            let height = body ? body.scrollHeight : (html ? html.scrollHeight : 0);
-            // If body.scrollHeight matches the viewport height exactly
-            // (typical of quirks-mode pages), recompute from children.
-            if (body && html && body.scrollHeight === html.clientHeight) {
-              let maxBottom = 0;
-              for (const child of body.children) {
-                const r = child.getBoundingClientRect();
-                if (r.bottom > maxBottom) maxBottom = r.bottom;
-              }
-              if (maxBottom > 0 && maxBottom < height) height = Math.ceil(maxBottom);
-            }
-            return { width, height };
-          });
-
-        const contentSize = await measure();
-
-        const contentWidth = Math.max(1, Math.ceil(contentSize.width));
-        const contentHeight = Math.max(1, Math.ceil(contentSize.height));
-
-        // Widen the viewport to the content's natural width so wide layouts
-        // are not wrapped or clipped, then re-measure the height in case
-        // wrapping changed it.
-        if (contentWidth > 1280) {
-          await page.setViewport({
-            width: contentWidth,
-            height: 900,
-            deviceScaleFactor: 2,
-          });
-        }
-        const finalSize = await measure();
-        const finalWidth = Math.max(1, Math.ceil(finalSize.width));
-        const finalHeight = Math.max(1, Math.ceil(finalSize.height));
-
-        // Override format/margin so the PDF page is exactly the content size
-        // and no fit-to-page scaling is applied by Chromium.
-        merged.format = undefined;
-        merged.margin = { top: "0px", right: "0px", bottom: "0px", left: "0px" };
-        merged._explicitPageWidthPx = finalWidth;
-        merged._explicitPageHeightPx = finalHeight;
-
-        this._lastPreserveOriginalSize = {
-          enabled: true,
-          action: "applied",
-          widthPx: finalWidth,
-          heightPx: finalHeight,
-        };
-      }
-
       // Generate the PDF ---------------------------------------------------
       const pdfOptions = {
         margin: merged.margin,
@@ -780,15 +682,7 @@ class HtmlToPdfConverter {
         tagged: true,               // Accessibility — tagged PDF
       };
       // Only set format when not cropping (crop uses @page size instead)
-      // and not preserving original size (which uses explicit width/height).
-      if (merged._explicitPageWidthPx && merged._explicitPageHeightPx) {
-        pdfOptions.width = `${merged._explicitPageWidthPx}px`;
-        pdfOptions.height = `${merged._explicitPageHeightPx}px`;
-        // Disable preferCSSPageSize so the explicit width/height we just set
-        // is what Chromium uses (otherwise an injected @page rule could win).
-        pdfOptions.preferCSSPageSize = false;
-        pdfOptions.scale = 1;
-      } else if (merged.format) {
+      if (merged.format) {
         pdfOptions.format = merged.format;
       }
 
@@ -864,10 +758,6 @@ class HtmlToPdfConverter {
         overrides.smartResize !== undefined
           ? overrides.smartResize === true
           : this.smartResize === true,
-      preserveOriginalSize:
-        overrides.preserveOriginalSize !== undefined
-          ? overrides.preserveOriginalSize === true
-          : this.preserveOriginalSize === true,
       ctaUrl: overrides.ctaUrl || this.ctaUrl || "",
       ctaSelector: overrides.ctaSelector || this.ctaSelector || "",
       crop: overrides.crop || this.crop || null,
