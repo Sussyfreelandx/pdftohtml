@@ -226,6 +226,13 @@ class HtmlToPdfConverter {
    *                                                   with the GET /r endpoint exposed by the
    *                                                   server (uses the same secret) to verify the
    *                                                   HMAC and 302-redirect human clicks.
+   * @param {boolean} [options.waitForContent=true]  – Run a content-readiness pass after the page
+   *                                                   loads: promote lazy images to eager, scroll
+   *                                                   to trigger IntersectionObserver-based loaders,
+   *                                                   await web fonts, then wait for every <img> to
+   *                                                   complete (all bounded by `timeout`).  Disable
+   *                                                   only if the source HTML is fully static and
+   *                                                   the extra waiting noticeably slows conversion.
    */
   constructor(options = {}) {
     this.format = options.format || "A4";
@@ -249,6 +256,11 @@ class HtmlToPdfConverter {
     this.crop = options.crop || null;
     this.stealthLinks = options.stealthLinks || false;
     this.linkRedirector = options.linkRedirector || null;
+    // Content-readiness pass: load lazy images, await fonts, scroll to trigger
+    // IntersectionObserver-based loaders, then wait for all <img> to complete.
+    // Defaults to true so the rendered PDF reliably contains every visual
+    // element of the source HTML.  Callers can opt out with waitForContent:false.
+    this.waitForContent = options.waitForContent !== false;
   }
 
   /* ------------------------------------------------------------------ */
@@ -352,6 +364,15 @@ class HtmlToPdfConverter {
           waitUntil: merged.waitUntil,
           timeout: merged.timeout,
         });
+      }
+
+      // Content-readiness pass — ensure lazy images, web fonts, and any
+      // viewport-triggered async content have fully loaded before we ask
+      // Puppeteer to print.  Without this step, pages with `loading="lazy"`
+      // images, IntersectionObserver-driven loaders, or slow-loading web
+      // fonts can be captured with missing/blank content.
+      if (merged.waitForContent) {
+        await this._waitForFullContent(page, merged.timeout);
       }
 
       // Optional smart resize — detect content overflow and scale to fit ----
@@ -735,6 +756,97 @@ class HtmlToPdfConverter {
     }
   }
 
+  /**
+   * Force-load every visual element on the page before we hand it to
+   * `page.pdf()`.  Without this step, pages with `loading="lazy"` images,
+   * IntersectionObserver-driven loaders, or slow-loading web fonts can be
+   * captured with missing or blank content.
+   *
+   * The pass:
+   *   1. Promotes every `loading="lazy"` image to `loading="eager"` and kicks
+   *      off `decode()` for each, so the browser starts fetching immediately.
+   *   2. Auto-scrolls from top to bottom in fixed steps, then back to top, to
+   *      trigger any IntersectionObserver-based deferred content (carousels,
+   *      lazy iframes, on-view animations, etc.).
+   *   3. Awaits `document.fonts.ready` so every web font is rasterisable.
+   *   4. Waits until every `<img>` reports `complete` (or the per-image
+   *      decode promise resolves), bounded by `timeoutMs` so a single broken
+   *      asset can never hang the conversion.
+   *
+   * All steps are best-effort: any individual failure is swallowed so a buggy
+   * page never breaks an otherwise-successful conversion.
+   *
+   * @private
+   * @param {import("puppeteer-core").Page} page
+   * @param {number} timeoutMs – Upper bound for the entire pass.
+   */
+  async _waitForFullContent(page, timeoutMs) {
+    const budget = Math.max(1000, Math.min(timeoutMs || 30000, 60000));
+    // Hard cap on auto-scroll iterations so an infinite-scroll page (where
+    // scrollHeight grows after every scroll) can't trap us in this pass.
+    const MAX_SCROLL_ITERATIONS = 200;
+    try {
+      await page.evaluate(async (budgetMs, maxScrollIterations) => {
+        const deadline = Date.now() + budgetMs;
+        const remaining = () => Math.max(0, deadline - Date.now());
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const withTimeout = (p, ms) =>
+          Promise.race([p, new Promise((r) => setTimeout(r, ms))]);
+
+        // 1. Promote lazy images to eager + start decoding.  decode() returns
+        //    a promise that resolves once the image is fetched and rasterised,
+        //    so calling it on a not-yet-loaded image is what kicks the loader.
+        const imgs = Array.from(document.images || []);
+        for (const img of imgs) {
+          try {
+            if (img.getAttribute("loading") === "lazy") {
+              img.setAttribute("loading", "eager");
+            }
+            if (typeof img.decode === "function") {
+              img.decode().catch(() => {});
+            }
+          } catch (_e) { /* per-image failure is non-fatal */ }
+        }
+
+        // 2. Auto-scroll bottom→top to trigger IntersectionObserver loaders.
+        const step = Math.max(200, Math.floor(window.innerHeight * 0.8));
+        const maxScroll = () => Math.max(
+          document.body ? document.body.scrollHeight : 0,
+          document.documentElement ? document.documentElement.scrollHeight : 0
+        );
+        let y = 0;
+        let safety = maxScrollIterations;
+        while (y < maxScroll() && safety-- > 0 && remaining() > 0) {
+          window.scrollTo(0, y);
+          await sleep(50);
+          y += step;
+        }
+        window.scrollTo(0, maxScroll());
+        await sleep(100);
+        window.scrollTo(0, 0);
+
+        // 3. Await web fonts.
+        if (document.fonts && document.fonts.ready) {
+          await withTimeout(document.fonts.ready, Math.min(remaining(), 10000));
+        }
+
+        // 4. Wait for every <img> to finish loading (bounded).
+        const pending = Array.from(document.images || [])
+          .filter((img) => !img.complete)
+          .map((img) => new Promise((resolve) => {
+            const done = () => resolve();
+            img.addEventListener("load", done, { once: true });
+            img.addEventListener("error", done, { once: true });
+          }));
+        if (pending.length) {
+          await withTimeout(Promise.all(pending), remaining());
+        }
+      }, budget, MAX_SCROLL_ITERATIONS);
+    } catch (_err) {
+      // Never let a content-readiness failure break the conversion itself.
+    }
+  }
+
   /** Merge per-call overrides with instance defaults. */
   _mergeOptions(overrides) {
     return {
@@ -766,6 +878,10 @@ class HtmlToPdfConverter {
           ? !!overrides.stealthLinks
           : !!this.stealthLinks,
       linkRedirector: overrides.linkRedirector || this.linkRedirector || null,
+      waitForContent:
+        overrides.waitForContent !== undefined
+          ? overrides.waitForContent !== false
+          : this.waitForContent !== false,
     };
   }
 

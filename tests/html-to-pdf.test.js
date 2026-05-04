@@ -142,6 +142,42 @@ describe("HtmlToPdfConverter", () => {
     const buf = await converter.convertHtmlToBuffer(html);
     expect(buf.slice(0, 5).toString()).toBe("%PDF-");
   }, 30000);
+
+  test("waitForContent promotes lazy images and waits for fonts before printing", async () => {
+    // Inline 1×1 PNG (data URI loads synchronously, but using loading="lazy"
+    // would normally defer the decode beyond the print snapshot — the
+    // content-readiness pass forces it to load before page.pdf() runs).
+    const px =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+    const html = `
+      <html><head>
+        <style>
+          @font-face {
+            font-family: "MissingFont";
+            src: url("data:font/woff2;base64,") format("woff2");
+          }
+          body { font-family: "MissingFont", sans-serif; }
+        </style>
+      </head><body>
+        <h1>Lazy gallery</h1>
+        <p>This document has lazy images that must render in the PDF.</p>
+        <img loading="lazy" src="${px}" width="100" height="100" alt="a">
+        <img loading="lazy" src="${px}" width="100" height="100" alt="b">
+        <img loading="lazy" src="${px}" width="100" height="100" alt="c">
+      </body></html>
+    `;
+    const buf = await converter.convertHtmlToBuffer(html);
+    expect(buf.slice(0, 5).toString()).toBe("%PDF-");
+    // PDF must include embedded image data — proves the lazy <img>s rendered.
+    const raw = buf.toString("latin1");
+    expect(raw).toMatch(/\/Subtype\s*\/Image/);
+  }, 30000);
+
+  test("waitForContent: false short-circuits the readiness pass", async () => {
+    const html = "<html><body><p>fast path</p></body></html>";
+    const buf = await converter.convertHtmlToBuffer(html, { waitForContent: false });
+    expect(buf.slice(0, 5).toString()).toBe("%PDF-");
+  }, 30000);
 });
 
 /* ------------------------------------------------------------------ */

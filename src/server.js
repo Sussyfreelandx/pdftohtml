@@ -518,6 +518,7 @@ function createServer(options = {}) {
        // Top-level convenience fields and multipart string fields
        if (req.body.format) opts.format = opts.format || req.body.format;
        if (req.body.smartResize !== undefined) opts.smartResize = parseBoolean(req.body.smartResize);
+       if (req.body.waitForContent !== undefined) opts.waitForContent = parseBoolean(req.body.waitForContent);
        if (req.body.ctaUrl) opts.ctaUrl = opts.ctaUrl || req.body.ctaUrl;
       if (req.body.ctaSelector) opts.ctaSelector = opts.ctaSelector || req.body.ctaSelector;
       if (req.body.crop) {
